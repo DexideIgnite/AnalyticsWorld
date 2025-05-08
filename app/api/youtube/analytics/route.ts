@@ -45,7 +45,10 @@ export async function GET() {
       maxResults: 50,
     })
 
-    const videoIds = videosResponse.data.items?.map((item) => item.id?.videoId) || []
+    // Filter out any null or undefined video IDs and ensure they are strings
+    const videoIds = videosResponse.data.items
+      ?.map((item) => item.id?.videoId)
+      .filter((id): id is string => id !== null && id !== undefined) || []
     
     const videoStatsResponse = await youtube.videos.list({
       part: ["statistics"],
