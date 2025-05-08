@@ -1,4 +1,4 @@
-import NextAuth from "next-auth"
+import NextAuth, { DefaultSession } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import { PrismaClient } from "@prisma/client"
@@ -6,13 +6,16 @@ import { PrismaClient } from "@prisma/client"
 const prisma = new PrismaClient()
 
 declare module "next-auth" {
-  interface Session {
+  interface Session extends DefaultSession {
     user: {
       id: string
-      name?: string | null
-      email?: string | null
-      image?: string | null
-    }
+    } & DefaultSession["user"]
+    accessToken?: string
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
     accessToken?: string
   }
 }
