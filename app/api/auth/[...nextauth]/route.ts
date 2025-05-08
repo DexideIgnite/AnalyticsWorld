@@ -5,6 +5,18 @@ import { PrismaClient } from "@prisma/client"
 
 const prisma = new PrismaClient()
 
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string
+      name?: string | null
+      email?: string | null
+      image?: string | null
+    }
+    accessToken?: string
+  }
+}
+
 const handler = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers: [
