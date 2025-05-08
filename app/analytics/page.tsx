@@ -25,11 +25,6 @@ interface YouTubeData {
   }>
 }
 
-export const metadata = {
-  title: 'Analytics Dashboard - Analytics World',
-  description: 'Track your YouTube channel performance with our comprehensive analytics dashboard.',
-}
-
 export default function AnalyticsPage() {
   const { data: session, status } = useSession()
   const [data, setData] = useState<YouTubeData | null>(null)
