@@ -556,7 +556,7 @@
         var comp = (layer && layer.containingComp) || activeComp(); if (!comp) return;
         var n = name.toLowerCase(); var t0 = s.time;
         var slot = layer ? layer : (ASSETS.shot1 || null);
-        if (/3d|tilt|flip|stand|orbit|hover|sway|parallax|depth|turn/.test(n)) return build3DWindow(comp, "3D Window", name, s, (slot && slot.source) ? slot : null);
+        if (/3d|tilt|flip|stand|orbit|hover|sway|parallax|depth|turn/.test(n)) { if (layer && layer.source) return make3DScreenshot(layer, name, s); return build3DWindow(comp, "3D Window", name, s, (slot && slot.source) ? slot : null); }
         var win = buildWindow(comp, "App Window", { inT: t0, dotsT: t0 + 0.4, glowT: t0 + 0.7, zoomT: /zoom|hero|feature|push/.test(n) ? t0 + 1.2 : 0, shine: /shine|premium/.test(n), cursorT: /cursor|click|tap/.test(n) ? t0 + 1.4 : 0 }, s, slot && slot.source ? slot : (layer && layer.source ? layer : slot));
         if (/callout|feature|label/.test(n)) promoCallout(comp, win.ctrl, [win.center[0] + win.w / 2 - 40, win.center[1] - win.h / 2 + 10], "New", t0 + 1.0);
         return win;
@@ -628,9 +628,28 @@
         else if (/pull back/.test(n)) { keyZ(-520, dur); try { R.y.expression = "5*Math.sin(time*0.4)"; } catch (e) {} }
         else { introScale(0.9); try { R.y.expression = "6*Math.sin(time*0.7)"; R.x.expression = "-5+3*Math.sin(time*0.5)"; } catch (e) {} hover(14, 40); }
     }
+    // Take the user's OWN screenshot layer and make it look 3D: glow, soft shadow,
+    // back glow, real Z depth + a movement preset. No frame, no dots, no placeholder.
+    function make3DScreenshot(layer, preset, s) {
+        var comp = layer.containingComp; ensure3DCamera(comp);
+        var pos = transformProps(layer).pos.value; var cx = pos[0], cy = pos[1];
+        var ctrl = addNull(comp, layer.name + " 3D Ctrl"); ctrl.threeDLayer = true; var ctp = transformProps(ctrl); ctp.anchor.setValue([0, 0, 0]); ctp.pos.setValue([cx, cy, 0]);
+        // enhance the screenshot itself
+        layer.threeDLayer = true; addShadow(layer, 95, 170, 24); addGlow(layer, 45, 1.5, BRAND.glow);
+        layer.parent = ctrl;   // keeps the screenshot's world position
+        // soft glow behind the screenshot (sized to it), follows it
+        var rect; try { rect = layer.sourceRectAtTime(comp.time, false); } catch (e) { rect = { width: comp.width * 0.6, height: comp.height * 0.55 }; }
+        var back = addCircle(comp, Math.max(rect.width, rect.height) * 1.25, BRAND.primary, layer.name + " Back Glow");
+        transformProps(back).pos.setValue([cx, cy]); transformProps(back).opac.setValue(34); addBlur(back, 120);
+        back.threeDLayer = true; back.parent = ctrl; var bpv = transformProps(back).pos.value; transformProps(back).pos.setValue([bpv[0], bpv[1], 140]); back.moveAfter(layer);
+        apply3DMove(comp, ctrl, null, preset, [cx, cy, 0], s);
+        return ctrl;
+    }
     function makeThreeDWindow(presetName) {
-        var comp = activeComp(); if (!comp) return; var s = buildSettings(); var sel = comp.selectedLayers;
-        undoable("3D Window: " + presetName, function () { var slot = (sel && sel.length && sel[0].source) ? sel[0] : (ASSETS.shot1 && ASSETS.shot1.source ? ASSETS.shot1 : null); build3DWindow(comp, "3D Window", presetName, s, slot); });
+        var comp = activeComp(); if (!comp) return; var sel = comp.selectedLayers;
+        if (!sel || !sel.length) { alert("Select your screenshot / image layer first, then Make Screenshot 3D.", SCRIPT_NAME); return; }
+        var s = buildSettings();
+        undoable("Screenshot 3D: " + presetName, function () { for (var i = 0; i < sel.length; i++) make3DScreenshot(sel[i], presetName, s); });
     }
 
     /* ===================================================================== *
@@ -1406,11 +1425,10 @@
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
             var r = trow(tab); r.add("statictext", undefined, "Window preset:"); var wDD = r.add("dropdownlist", undefined, WINDOW); wDD.selection = 0; wDD.alignment = ["fill", "center"];
             var r2 = trow(tab); bigBtn(r2, "Apply Window Preset", function () { applyPreset("Window / Screenshot", wDD.selection.text, undefined); }); bigBtn(r2, "Make Premium Window", makeScreenshotWindow);
-            tab.add("statictext", undefined, "── 3D webpage window (glowing, layered depth) ──");
+            tab.add("statictext", undefined, "── Make YOUR selected screenshot look 3D (glow + shadow + depth + movement) ──");
             var t3 = trow(tab); t3.add("statictext", undefined, "3D movement:"); var wDD3 = t3.add("dropdownlist", undefined, WINDOW3D); wDD3.selection = 0; wDD3.alignment = ["fill", "center"];
-            var t3b = trow(tab); bigBtn(t3b, "Make 3D Window", function () { makeThreeDWindow(wDD3.selection.text); }); bigBtn(t3b, "Random 3D Window", function () { seed(CFG.seed + comboSalt()); var nm = pick(WINDOW3D); for (var i = 0; i < wDD3.items.length; i++) if (wDD3.items[i].text === nm) wDD3.selection = i; makeThreeDWindow(nm); });
-            var r3 = trow(tab); r3.add("statictext", undefined, "From slot:"); var slDD = r3.add("dropdownlist", undefined, ["logo", "shot1", "shot2", "shot3", "product"]); slDD.selection = 1; bigBtn(r3, "Build 2D Window From Slot", function () { buildWindowFromSlot(slDD.selection.text); });
-            tab.add("statictext", undefined, "Select your screenshot layer (or fill Screenshot slot 1), then Make 3D Window. No selection = placeholder.");
+            var t3b = trow(tab); bigBtn(t3b, "Make Screenshot 3D", function () { makeThreeDWindow(wDD3.selection.text); }); bigBtn(t3b, "Random 3D Move", function () { seed(CFG.seed + comboSalt()); var nm = pick(WINDOW3D); for (var i = 0; i < wDD3.items.length; i++) if (wDD3.items[i].text === nm) wDD3.selection = i; makeThreeDWindow(nm); });
+            tab.add("statictext", undefined, "Select your screenshot/image layer, pick a movement, then Make Screenshot 3D. It only adds glow/shadow/3D depth around your layer — no fake frame.");
         }
         function buildShapeTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
