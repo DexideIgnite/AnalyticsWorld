@@ -1259,6 +1259,22 @@
         var lib = win.add("statictext", undefined, "Library: " + namedPresetCount() + "+ named presets / " + formatThousands(combinationCount()) + "+ combinations");
         try { lib.graphics.font = ScriptUI.newFont("dialog", "ITALIC", 10); } catch (e) {}
 
+        /* ---- Tabs FIRST so they stay on-screen even when the panel is docked short ---- */
+        var tp = win.add("tabbedpanel"); tp.alignChildren = ["fill", "fill"]; tp.preferredSize.height = 300;
+        function safeTab(titleStr, builder) { var t = tp.add("tab", undefined, titleStr); try { builder(t); } catch (e) { try { t.add("statictext", undefined, titleStr + " error: " + e.toString()); } catch (e2) {} } }
+        safeTab("Presets", function (t) { buildPresetsTab(t); });
+        safeTab("Quick", buildQuickTab);
+        safeTab("Promo", buildPromoTab);
+        safeTab("Markers", buildMarkerTab);
+        safeTab("Text", buildQueueTab);
+        safeTab("Assets", buildAssetsTab);
+        safeTab("Window", buildWindowTab);
+        safeTab("Shapes", buildShapeTab);
+        safeTab("Preview", buildPreviewTab);
+        safeTab("Export", buildExportTab);
+
+        /* ---- Setup panels below (Center, Timing, Brand, etc. are also in the Quick tab) ---- */
+
         /* ---- Project + Brand ---- */
         var proj = win.add("panel", undefined, "Project & Brand"); proj.orientation = "column"; proj.alignChildren = ["fill", "top"]; proj.margins = 10; proj.spacing = 4;
         var pr0 = trow(proj); pr0.add("statictext", undefined, "Project Name:"); var nameF = pr0.add("edittext", undefined, STATE.projectName); nameF.alignment = ["fill", "center"];
@@ -1304,23 +1320,7 @@
         UI.dur = field(advBody, "Duration (s)", "0.6"); UI.delay = field(advBody, "Delay / stagger (s)", "0.08"); UI.dist = field(advBody, "Distance (px)", "300"); UI.bounce = field(advBody, "Bounce amount", "1"); UI.glow = field(advBody, "Glow strength", "1"); UI.blur = field(advBody, "Blur amount", "1"); UI.flash = field(advBody, "Flash strength", "1"); UI.scale = field(advBody, "Scale amount (%)", "100"); UI.rot = field(advBody, "Rotation amount", "15"); UI.off = field(advBody, "Marker offset (s)", "0.0"); UI.rand = field(advBody, "Random variation (%)", "20"); UI.seed = field(advBody, "Random seed", "12345");
         var scopeG = trow(advBody); scopeG.add("statictext", undefined, "Apply to:"); var scopeDD = scopeG.add("dropdownlist", undefined, ["Each selected (stagger)", "All selected as group", "Markers"]); scopeDD.selection = 0; scopeDD.onChange = function () { CFG.applyTo = scopeDD.selection.index === 1 ? "all" : (scopeDD.selection.index === 2 ? "markers" : "each"); };
 
-        /* ---- Tabs (Presets is the first tab so it's always reachable) ---- */
-        // NOTE: kept to 9 short-titled tabs so all tab headers fit (14 overflowed and hid tabs).
-        // Every preset category (Motion/Text/Transition/Flash/Camera/etc.) is in the Preset Library panel above.
-        var tp = win.add("tabbedpanel"); tp.alignChildren = ["fill", "fill"]; tp.preferredSize.height = 250;
-        function safeTab(titleStr, builder) { var t = tp.add("tab", undefined, titleStr); try { builder(t); } catch (e) { try { t.add("statictext", undefined, titleStr + " error: " + e.toString()); } catch (e2) {} } }
-        safeTab("Presets", function (t) { buildPresetsTab(t); });
-        safeTab("Quick", buildQuickTab);
-        safeTab("Promo", buildPromoTab);
-        safeTab("Markers", buildMarkerTab);
-        safeTab("Text", buildQueueTab);
-        safeTab("Assets", buildAssetsTab);
-        safeTab("Window", buildWindowTab);
-        safeTab("Shapes", buildShapeTab);
-        safeTab("Preview", buildPreviewTab);
-        safeTab("Export", buildExportTab);
-
-        var foot = win.add("statictext", undefined, "Pick a Profile, load a Text Pack, place markers, then Build. Every action is one undo step.");
+        var foot = win.add("statictext", undefined, "Presets are in the FIRST tab. Center & Timing are also in the Quick tab. One undo step per action.");
         try { foot.graphics.font = ScriptUI.newFont("dialog", "ITALIC", 10); } catch (e) {}
 
         /* ============ tab builders ============ */
@@ -1339,6 +1339,8 @@
         }
         function buildQuickTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
+            var c0 = trow(tab); bigBtn(c0, "Center", function () { centerSelected(true, true, "Center"); }); bigBtn(c0, "Center H", function () { centerSelected(true, false, "Center H"); }); bigBtn(c0, "Center V", function () { centerSelected(false, true, "Center V"); }); bigBtn(c0, "Anchor→Center", anchorToCenterSelected);
+            var tRow = trow(tab); var fc = tRow.add("checkbox", undefined, "Fast pace"); fc.value = CFG.fastPace; fc.onClick = function () { CFG.fastPace = fc.value; }; tRow.add("statictext", undefined, "Fit:"); var fd = tRow.add("dropdownlist", undefined, ["Current", "Layer", "Comp"]); fd.selection = 0; fd.onChange = function () { CFG.fit = fd.selection.index === 1 ? "layer" : (fd.selection.index === 2 ? "comp" : "current"); }; tRow.add("statictext", undefined, "Speed%:"); var sp2 = tRow.add("edittext", undefined, "" + CFG.speed); sp2.characters = 4; sp2.onChange = function () { CFG.speed = clamp(pf(sp2, 22), 4, 90); };
             var r1 = trow(tab); bigBtn(r1, "Build Full 30s Promo", function () { buildFullPromo(false); }); bigBtn(r1, "Make Premium Window", makeScreenshotWindow);
             var r2 = trow(tab); bigBtn(r2, "Add Shape Pack", function () { var c = activeComp(); if (c) addShapePack(c, "Clean Tech Shape Pack"); }); bigBtn(r2, "Apply Marker Actions", applyMarkerActions);
             var r3 = trow(tab); bigBtn(r3, "Flash Current Time", function () { var c = activeComp(); if (c) undoable("Flash", function () { applyFlashPreset(c.time, "Clean Premium Flash", buildSettings()); }); }); bigBtn(r3, "Flash All Markers", function () { applyToMarkers("Flash / Impact", "Beat Flash"); });
