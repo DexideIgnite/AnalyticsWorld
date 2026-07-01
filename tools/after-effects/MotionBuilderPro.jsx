@@ -194,7 +194,8 @@
     var CFG = {
         style: "Clean Premium", energy: "Medium", duration: 0.6, delay: 0.08, distance: 300,
         bounce: 1, glow: 1, blur: 1, flash: 1, scale: 100, rotation: 15,
-        markerOffset: 0, randomVar: 20, seed: 12345, applyTo: "each"
+        markerOffset: 0, randomVar: 20, seed: 12345, applyTo: "each",
+        fastPace: true, fit: "current", speed: 22   // fit: "current" | "layer" | "comp";  speed = % of length used by the in-animation
     };
     function styleObj() { return STYLE_PRESETS[CFG.style] || STYLE_PRESETS["Clean Premium"]; }
     function styleEasing() { return styleObj().easing; }
@@ -1031,24 +1032,32 @@
     }
     function animateOutLayer(layer, tEnd, dur) { var op = transformProps(layer).opac; op.setValueAtTime(tEnd - dur, 100); op.setValueAtTime(tEnd, 0); easeProperty(op, 75, 75); }
 
-    function buildFullPromo() {
-        undoable("Build Full 30s Promo", function () {
-            var s = mergeS(buildSettings(), { duration: (STATE.density === "Insane" ? 0.28 : 0.42) });
-            var W = 1920, H = 1080, FPS = 30, DUR = 30; var dens = densityObj();
-            var srcComp = activeComp(true); var srcMarkers = srcComp ? getCompMarkers(srcComp) : [];
-            var compName = STATE.projectName + " - 30s Edit";
-            var comp = app.project.items.addComp(compName, W, H, 1, DUR, FPS); comp.openInViewer();
-            motionBackground(comp);
+    function buildFullPromo(fitCurrent) {
+        undoable(fitCurrent ? "Build Promo To Fit Comp" : "Build Full 30s Promo", function () {
+            var fastDur = CFG.fastPace ? (STATE.density === "Insane" ? 0.22 : 0.3) : (STATE.density === "Insane" ? 0.28 : 0.42);
+            var s = mergeS(buildSettings(), { duration: fastDur });
+            var W = 1920, H = 1080, FPS = 30; var dens = densityObj();
+            var comp, DUR, compName;
+            if (fitCurrent) {
+                comp = activeComp(); if (!comp) return; DUR = comp.duration; compName = comp.name;
+                if (DUR < 3) { alert("The current comp is too short (" + DUR.toFixed(1) + "s). Make the timeline longer, or build a new 30s promo.", SCRIPT_NAME); return; }
+            } else {
+                DUR = 30; compName = STATE.projectName + " - 30s Edit";
+                comp = app.project.items.addComp(compName, W, H, 1, DUR, FPS); comp.openInViewer();
+                motionBackground(comp);
+            }
+            var srcComp = fitCurrent ? comp : activeComp(true); var srcMarkers = fitCurrent ? getCompMarkers(comp) : (srcComp ? getCompMarkers(srcComp) : []);
             // markers per beat-sync mode
             var usedExisting = false;
-            if (STATE.beatSyncMode === "Use Existing Comp Markers" && srcMarkers.length >= 4) { for (var m = 0; m < srcMarkers.length; m++) if (srcMarkers[m].time < DUR - 1e-4) addCompMarker(comp, srcMarkers[m].time, srcMarkers[m].comment || "Beat"); usedExisting = true; }
+            if (fitCurrent) { if (srcMarkers.length >= 2) usedExisting = true; else generateDefaultMarkers(comp, 0.5); }
+            else if (STATE.beatSyncMode === "Use Existing Comp Markers" && srcMarkers.length >= 4) { for (var m = 0; m < srcMarkers.length; m++) if (srcMarkers[m].time < DUR - 1e-4) addCompMarker(comp, srcMarkers[m].time, srcMarkers[m].comment || "Beat"); usedExisting = true; }
             else if (STATE.beatSyncMode === "Use Marker Bin Roles" && MARKERBIN.length >= 4) { for (var mb = 0; mb < MARKERBIN.length; mb++) if (MARKERBIN[mb].time < DUR - 1e-4) addCompMarker(comp, MARKERBIN[mb].time, MARKERBIN[mb].role); usedExisting = true; }
             else generateDefaultMarkers(comp, 0.5);
             var markers = getCompMarkers(comp);
             ensureCameraRig(comp);
             var texts = activePromoScenes();
             var sceneNames = ["SCENE 01 - Logo / Hook", "SCENE 02 - Main Statement", "SCENE 03 - Screenshot Reveal", "SCENE 04 - Feature / Value", "SCENE 05 - Community / Proof", "SCENE 06 - Extra Feature", "SCENE 07 - Final CTA"];
-            var bounds = [0, 4, 8, 12, 16, 20, 25, 30];
+            var frac = [0, 4, 8, 12, 16, 20, 25, 30]; var sc = DUR / 30; var bounds = []; for (var fi = 0; fi < frac.length; fi++) bounds.push(frac[fi] * sc);
             var recipe = [];
             for (var i = 0; i < 7; i++) { var wm = markersInRange(markers, bounds[i], bounds[i + 1]); var line = promoScene(comp, i, sceneNames[i], bounds[i], bounds[i + 1], wm, texts[i] || [], dens, s); recipe.push(sceneNames[i] + "\n" + fmtTime(bounds[i]) + " - " + fmtTime(bounds[i + 1]) + "\n" + line); if (i < 6) { renameFlashLayer(addFlash(comp, bounds[i + 1] - 0.05, BRAND.text, 0.2, 3), "Scene Transition Flash " + (i + 1)); addCameraBump(comp, bounds[i + 1], 12); } }
             // rhythm: strong pulse + bump on every 4th marker away from boundaries
@@ -1059,7 +1068,7 @@
                 "Every 4th marker = strong hit + camera bump. Every 8th / boundary = scene change. Screenshot window: SCENE 03" + (slotFor(5) ? " + SCENE 06" : "") + ". Final CTA: 0:25.\n";
             comp.comment = SCRIPT_NAME + " — 30-SECOND PROMO\n\n" + header + "\n" + recipe.join("\n\n");
             buildRecipeLayer(comp, header, recipe);
-            alert("Built '" + compName + "'\n7 scenes, 30 seconds, " + markers.length + " comp markers.\nDensity: " + STATE.density + ".  Recipe layer: 'Motion Recipe'.", SCRIPT_NAME);
+            alert("Built '" + compName + "'\n7 scenes, " + DUR.toFixed(1) + "s (fit to timeline), " + markers.length + " comp markers.\nFast pace: " + (CFG.fastPace ? "on" : "off") + ".  Density: " + STATE.density + ".  Recipe layer: 'Motion Recipe'.", SCRIPT_NAME);
         });
     }
 
@@ -1141,7 +1150,12 @@
             if (cat === "Full Scene Presets") { var texts = activePromoScenes(); var idxMap = { "Logo / Hook Scene": 0, "Main Statement Scene": 1, "Product / Screenshot Reveal Scene": 2, "Feature / Value Scene": 3, "Community / Social Proof Scene": 4, "Extra Feature Scene": 5, "Final CTA Scene": 6 }; var idx = idxMap[name] || 0; promoScene(comp, idx, name.replace(" Scene", ""), comp.time, comp.time + 4, markersInRange(getCompMarkers(comp), comp.time, comp.time + 4), texts[idx] || [], densityObj(), s); return; }
             var layers = comp.selectedLayers;
             if (!layers || layers.length === 0) { if (cat === "Text") { applyOneLayerPreset(cat, name, ensureTextLayer(comp, "Your text here"), s); return; } alert("Select at least one layer for this preset.", SCRIPT_NAME); return; }
-            for (var i = 0; i < layers.length; i++) applyOneLayerPreset(cat, name, layers[i], mergeS(s, { time: t + (CFG.applyTo === "each" ? i * CFG.delay : 0) }));
+            for (var i = 0; i < layers.length; i++) {
+                var tim = timingForLayer(layers[i], comp);
+                var stagger = (CFG.applyTo === "each") ? i * CFG.delay : 0;
+                applyOneLayerPreset(cat, name, layers[i], mergeS(s, { time: tim.time + stagger, duration: tim.duration }));
+                if (CFG.fit !== "current") addAutoExit(layers[i], tim.endT);
+            }
         });
     }
     function applyToMarkers(cat, name) {
@@ -1203,12 +1217,28 @@
         undoable("Anchor To Center", function () { for (var i = 0; i < layers.length; i++) anchorToCenterOne(layers[i], comp); });
     }
 
+    // Fast-pace + fit-to-length: compute start time + snappy duration for a layer.
+    function timingForLayer(layer, comp) {
+        var fast = CFG.fastPace, t, span, endT = null;
+        if (CFG.fit === "layer") { t = layer.inPoint; span = Math.max(0.2, layer.outPoint - layer.inPoint); endT = layer.outPoint; }
+        else if (CFG.fit === "comp") { t = 0; span = Math.max(0.4, comp.duration); endT = comp.duration; }
+        else { t = comp.time; span = fast ? 1.0 : 2.2; }
+        var frac = clamp(CFG.speed / 100, 0.04, 0.9);
+        var dur = span * frac; if (fast) dur = Math.min(dur, 0.35); dur = clamp(dur, 0.07, 6);
+        return { time: t, duration: dur, endT: endT };
+    }
+    function addAutoExit(layer, endT) {
+        if (!endT) return; var op = transformProps(layer).opac; var d = Math.min(0.35, endT * 0.2); if (d < 0.06) return;
+        op.setValueAtTime(Math.max(0, endT - d), 100); op.setValueAtTime(endT, 0); easeProperty(op, 75, 70);
+    }
+
     var UI = {};
     var refreshAssetUI = null;   // set by buildUI; called after asset slot changes
     var refreshMarkerBin = null; // set by buildUI
     function buildSettings() {
         if (UI.dur) { CFG.duration = clamp(pf(UI.dur, ENERGY_DUR[CFG.energy] || 0.45), 0.05, 30); CFG.delay = pf(UI.delay, 0.08); CFG.distance = pf(UI.dist, 300); CFG.bounce = pf(UI.bounce, 1); CFG.glow = pf(UI.glow, 1); CFG.blur = pf(UI.blur, 1); CFG.flash = pf(UI.flash, 1); CFG.scale = pf(UI.scale, 100); CFG.rotation = pf(UI.rot, 15); CFG.markerOffset = pf(UI.off, 0); CFG.randomVar = pf(UI.rand, 20); CFG.seed = Math.round(pf(UI.seed, 12345)); }
-        return { time: 0, duration: CFG.duration, delay: CFG.delay, distance: CFG.distance, bounce: CFG.bounce, glow: CFG.glow, blur: CFG.blur, flash: CFG.flash, scale: CFG.scale, rotation: CFG.rotation, markerOffset: CFG.markerOffset, seed: CFG.seed, easing: styleEasing(), color: styleColor() };
+        var dur = CFG.fastPace ? Math.min(CFG.duration, 0.3) : CFG.duration;
+        return { time: 0, duration: dur, delay: CFG.delay, distance: CFG.distance, bounce: CFG.bounce, glow: CFG.glow, blur: CFG.blur, flash: CFG.flash, scale: CFG.scale, rotation: CFG.rotation, markerOffset: CFG.markerOffset, seed: CFG.seed, easing: styleEasing(), color: styleColor() };
     }
 
     /* ===================================================================== *
@@ -1245,7 +1275,7 @@
         var er = trow(easy); er.add("statictext", undefined, "Style:"); var styleDD = er.add("dropdownlist", undefined, ["Clean Premium", "Fast Hype", "Dark Tech", "Creator Energy", "Apple-Level Clean", "Crypto Project"]); styleDD.selection = 0; er.add("statictext", undefined, "Energy:"); var energyDD = er.add("dropdownlist", undefined, ["Clean", "Medium", "Hype", "Insane"]); energyDD.selection = 1;
         styleDD.onChange = function () { CFG.style = styleDD.selection.text; syncEnergy(); }; energyDD.onChange = function () { CFG.energy = energyDD.selection.text; syncEnergy(); };
         function syncEnergy() { var so = styleObj(); CFG.glow = so.glow; CFG.blur = so.blur; var em = ENERGY_MUL[CFG.energy] || ENERGY_MUL["Medium"]; CFG.flash = Math.round((so.flash || 1) * em.flash); CFG.bounce = Math.max(1, Math.round(em.bounce * 1.5)); CFG.duration = ENERGY_DUR[CFG.energy] || 0.45; if (UI.dur) { UI.dur.text = CFG.duration.toFixed(2); UI.glow.text = "" + CFG.glow; UI.flash.text = "" + CFG.flash; UI.bounce.text = "" + CFG.bounce; } }
-        var eb = trow(easy); bigBtn(eb, "Build Full 30s Promo", buildFullPromo); bigBtn(eb, "Make Premium Window", makeScreenshotWindow);
+        var eb = trow(easy); bigBtn(eb, "Build Full 30s Promo", function () { buildFullPromo(false); }); bigBtn(eb, "Make Premium Window", makeScreenshotWindow);
         var eb2 = trow(easy); bigBtn(eb2, "Check Script Setup", qaCheck); bigBtn(eb2, "Export Motion Recipe", exportRecipe);
 
         /* ---- Align & Center (always visible) ---- */
@@ -1258,6 +1288,14 @@
         bigBtn(cr2, "Anchor → Center", anchorToCenterSelected);
         var ctrHelp = ctr.add("statictext", undefined, "Select layer(s) → Center. Centers to comp middle at the current time.");
         try { ctrHelp.graphics.font = ScriptUI.newFont("dialog", "ITALIC", 10); } catch (e) {}
+
+        /* ---- Timing / Fit (always visible) ---- */
+        var tm = win.add("panel", undefined, "Timing & Fit"); tm.orientation = "column"; tm.alignChildren = ["fill", "top"]; tm.margins = 10; tm.spacing = 4;
+        var tm1 = trow(tm); var fastChk = tm1.add("checkbox", undefined, "Fast pace (snappy)"); fastChk.value = CFG.fastPace; fastChk.onClick = function () { CFG.fastPace = fastChk.value; };
+        tm1.add("statictext", undefined, "Fit to:"); var fitDD = tm1.add("dropdownlist", undefined, ["Current Time", "Layer Length", "Comp Length"]); fitDD.selection = 0; fitDD.onChange = function () { CFG.fit = fitDD.selection.index === 1 ? "layer" : (fitDD.selection.index === 2 ? "comp" : "current"); };
+        var tm2 = trow(tm); tm2.add("statictext", undefined, "In-anim speed (% of length):"); var spF = tm2.add("edittext", undefined, "" + CFG.speed); spF.characters = 5; spF.onChange = function () { CFG.speed = clamp(pf(spF, 22), 4, 90); };
+        var tmHelp = tm.add("statictext", undefined, "Fast + Layer/Comp length: presets snap in and auto-exit to fit the layer's timeline bar.");
+        try { tmHelp.graphics.font = ScriptUI.newFont("dialog", "ITALIC", 10); } catch (e) {}
 
         /* ---- Advanced (collapsible) ---- */
         var adv = win.add("panel", undefined, "Advanced Controls"); adv.orientation = "column"; adv.alignChildren = ["fill", "top"]; adv.margins = 10; adv.spacing = 2;
@@ -1304,7 +1342,7 @@
         }
         function buildQuickTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
-            var r1 = trow(tab); bigBtn(r1, "Build Full 30s Promo", buildFullPromo); bigBtn(r1, "Make Premium Window", makeScreenshotWindow);
+            var r1 = trow(tab); bigBtn(r1, "Build Full 30s Promo", function () { buildFullPromo(false); }); bigBtn(r1, "Make Premium Window", makeScreenshotWindow);
             var r2 = trow(tab); bigBtn(r2, "Add Shape Pack", function () { var c = activeComp(); if (c) addShapePack(c, "Clean Tech Shape Pack"); }); bigBtn(r2, "Apply Marker Actions", applyMarkerActions);
             var r3 = trow(tab); bigBtn(r3, "Flash Current Time", function () { var c = activeComp(); if (c) undoable("Flash", function () { applyFlashPreset(c.time, "Clean Premium Flash", buildSettings()); }); }); bigBtn(r3, "Flash All Markers", function () { applyToMarkers("Flash / Impact", "Beat Flash"); });
             var r4 = trow(tab); bigBtn(r4, "Sync Text To Markers", function () { syncTextToMarkers("every"); }); bigBtn(r4, "Check Script Setup", qaCheck);
@@ -1317,7 +1355,8 @@
             var d = trow(tab); d.add("statictext", undefined, "Scene Mode:"); var scD = d.add("dropdownlist", undefined, ["Fixed 7 Scenes", "Marker-Based Scenes", "Auto From Scene Change Markers"]); scD.selection = 0; scD.alignment = ["fill", "center"]; scD.onChange = function () { STATE.sceneMode = scD.selection.text; };
             var e = trow(tab); e.add("statictext", undefined, "Promo Type:"); var ptD = e.add("dropdownlist", undefined, PROMO_TYPES); ptD.selection = 0; ptD.alignment = ["fill", "center"]; ptD.onChange = function () { STATE.promoType = ptD.selection.text; };
             syncPromoControls = function () { for (var i = 0; i < deD.items.length; i++) if (deD.items[i].text === STATE.density) deD.selection = i; for (var j = 0; j < ptD.items.length; j++) if (ptD.items[j].text === STATE.promoType) ptD.selection = j; };
-            var g1 = trow(tab); bigBtn(g1, "Build Full 30s Promo", buildFullPromo); bigBtn(g1, "Export Promo Recipe", exportRecipe);
+            var g1 = trow(tab); bigBtn(g1, "Build Full 30s Promo", function () { buildFullPromo(false); }); bigBtn(g1, "Build Promo To Fit Current Comp", function () { buildFullPromo(true); });
+            var g1b = trow(tab); bigBtn(g1b, "Export Promo Recipe", exportRecipe);
             var g2 = trow(tab); bigBtn(g2, "Make Promo More Premium", function () { CFG.style = "Apple-Level Clean"; CFG.energy = "Clean"; syncEnergy(); alert("Set to premium timing. Rebuild the promo for the new feel.", SCRIPT_NAME); }); bigBtn(g2, "Make Promo More Hype", function () { CFG.style = "Fast Hype"; CFG.energy = "Hype"; STATE.density = "Insane"; syncEnergy(); alert("Set to hype timing + Insane density. Rebuild the promo.", SCRIPT_NAME); });
             var g3 = trow(tab); bigBtn(g3, "Replace Text From Queue", function () { syncTextToMarkers("scene"); }); bigBtn(g3, "Replace Windows From Slots", function () { buildWindowFromSlot("shot1"); });
             var g4 = trow(tab); bigBtn(g4, "Re-sync Promo To Markers", function () { syncTextToMarkers("every"); });
