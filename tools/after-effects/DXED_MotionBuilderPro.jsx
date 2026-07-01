@@ -1182,34 +1182,313 @@
         return { logo: logo, shots: shots };
     }
 
+    /* --- 30-second beat-synced promo: comp-marker system --------------- */
+
+    // Read COMP markers (not layer markers). Returns [{time, comment, index}] sorted.
+    function getCompMarkers(comp) {
+        var out = [];
+        try { var mp = comp.markerProperty; for (var i = 1; i <= mp.numKeys; i++) out.push({ time: mp.keyTime(i), comment: (mp.keyValue(i).comment || ""), index: i }); } catch (e) {}
+        out.sort(function (a, b) { return a.time - b.time; });
+        for (var j = 0; j < out.length; j++) out[j].index = j + 1;   // re-index by order
+        return out;
+    }
+    // Default beat grid: every 0.5s beat, every 4th (2s) strong, every 8th (4s) scene/drop.
+    function generateDefaultMarkers(comp) {
+        var step = 0.5, count = Math.round(comp.duration / step);
+        for (var i = 0; i < count; i++) {
+            var idx = i + 1, cmt = "Beat";
+            if (idx % 8 === 0) cmt = "Drop / Scene Change";
+            else if (idx % 4 === 0) cmt = "Strong Hit";
+            addCompMarker(comp, i * step, cmt);
+        }
+    }
+    function markerRole(index) { if (index % 8 === 0) return "drop"; if (index % 4 === 0) return "strong"; return "beat"; }
+    function markersInRange(markers, t0, t1) { var o = []; for (var i = 0; i < markers.length; i++) if (markers[i].time >= t0 - 1e-4 && markers[i].time < t1 - 1e-4) o.push(markers[i]); return o; }
+    function mAt(wm, k, fb) { return wm.length ? wm[Math.min(k, wm.length - 1)].time : fb; }
+    function mLabel(wm, k) { return wm.length ? ("M" + wm[Math.min(k, wm.length - 1)].index) : "M?"; }
+
+    function renameLayer(layer, nm) { try { layer.name = nm; } catch (e) {} return layer; }
+    function hideUntil(prop, t) { prop.setValueAtTime(Math.max(0, t - 0.05), (prop.value.length ? prop.value : 0)); }
+
+    // Subtle purple beat pulse (low opacity) — used for rhythm on strong markers.
+    function subtleBeat(comp, t, name) {
+        var f = addSolid(comp, BRAND.purple, name); f.blendingMode = BlendingMode.ADD;
+        var op = transformProps(f).opac; op.setValueAtTime(t, 0); op.setValueAtTime(t + 0.05, 22); op.setValueAtTime(t + 0.18, 0); easeProperty(op, 70, 70);
+        f.inPoint = Math.max(0, t - 0.03); f.outPoint = t + 0.25; return f;
+    }
+    function promoFlash(comp, t, strong, name) { return renameLayer(addFlash(comp, t, strong ? BRAND.purple : BRAND.white, strong ? 0.2 : 0.13, strong ? 3 : 2), name); }
+    function promoTransition(comp, t, sceneIdx) { renameLayer(addFlash(comp, t - 0.05, BRAND.white, 0.22, 3), "Scene Transition Flash " + (sceneIdx + 1)); addCameraBump(comp, t, 12); }
+    function promoCameraPush(comp, t0, dur, mult, name) {
+        var adj = addAdjust(comp, name); var tr = addTransformFX(adj); if (!tr) return; var sc = tr.property("Scale"); if (!sc) return; var base = sc.value;
+        sc.setValueAtTime(t0, base); sc.setValueAtTime(t0 + dur, [base[0] * mult, base[1] * mult]); easeProperty(sc, 88, 88); adj.inPoint = Math.max(0, t0 - 0.1); adj.outPoint = Math.min(comp.duration, t0 + dur + 0.3);
+    }
+
+    // Animated dark DXED background with floating glow blobs.
+    function buildPromoBackground(comp) {
+        var bg = addSolid(comp, BRAND.black, "DXED Background"); bg.moveToEnd();
+        var blobs = [[BRAND.purple, 0.25, 0.32, 900], [BRAND.blue, 0.78, 0.62, 820], [BRAND.purple, 0.55, 0.86, 720]];
+        for (var i = 0; i < blobs.length; i++) {
+            var b = addCircle(comp, blobs[i][3], blobs[i][0], "BG Glow Blob " + (i + 1));
+            transformProps(b).pos.setValue([comp.width * blobs[i][1], comp.height * blobs[i][2]]);
+            transformProps(b).opac.setValue(22); addBlur(b, 160);
+            try { transformProps(b).pos.expression = "wiggle(0.12, 40)"; } catch (e) {}
+            b.moveAfter(bg);
+        }
+    }
+
+    // Text line that starts hidden, animates in on a marker, holds, exits before scene end.
+    function promoText(comp, layerName, text, size, posYFrac, inT, outT, preset, s) {
+        var tl = addTextLayer(comp, text, size, BRAND.white); renameLayer(tl, layerName);
+        transformProps(tl).pos.setValue([comp.width / 2, comp.height * posYFrac]);
+        transformProps(tl).opac.setValueAtTime(Math.max(0, inT - 0.05), 0);
+        applyTextPreset(tl, preset, mergeS(s, { time: inT }));
+        if (outT && outT > inT + 0.4) { var op = transformProps(tl).opac; op.setValueAtTime(outT - 0.35, 100); op.setValueAtTime(outT, 0); easeProperty(op, 75, 75); }
+        tl.inPoint = Math.max(0, inT - 0.15); if (outT) tl.outPoint = Math.min(comp.duration, outT + 0.25);
+        return tl;
+    }
+
+    function popCardAt(comp, name, size, pos, t, color, glowCol) {
+        var cd = addRoundedRect(comp, size, 26, color || BRAND.navy, name); addGlow(cd, 14, 1, glowCol || BRAND.purple);
+        transformProps(cd).pos.setValue(pos); var op = transformProps(cd).opac; op.setValueAtTime(t - 0.05, 0); op.setValueAtTime(t, 100);
+        bounceKeys(transformProps(cd).scale, t, 0.45, [0, 0], [100, 100], 1, 0.14); return cd;
+    }
+    function slideCardAt(comp, name, size, pos, t, off, color) {
+        var cd = addRoundedRect(comp, size, 26, color || BRAND.navy, name); addGlow(cd, 14, 1, BRAND.purple);
+        transformProps(cd).pos.setValue(pos); var op = transformProps(cd).opac; op.setValueAtTime(t - 0.05, 0); anim2(op, t, 0.4, 0, 100, "Smooth");
+        anim2(transformProps(cd).pos, t, 0.5, [pos[0] + off[0], pos[1] + off[1]], pos, "Snappy"); return cd;
+    }
+    function promoCallout(comp, ctrl, pos, label, t) {
+        var pill = addRoundedRect(comp, [280, 84], 42, BRAND.purple, "Callout " + label); addGlow(pill, 20, 1.4, BRAND.purple);
+        transformProps(pill).pos.setValue(pos); if (ctrl) pill.parent = ctrl;
+        var txt = renameLayer(addTextLayer(comp, label, 34, BRAND.white), "Callout Text " + label); transformProps(txt).pos.setValue(pos); if (ctrl) txt.parent = ctrl;
+        transformProps(pill).opac.setValueAtTime(t - 0.05, 0); transformProps(pill).opac.setValueAtTime(t, 100);
+        transformProps(txt).opac.setValueAtTime(t - 0.05, 0); transformProps(txt).opac.setValueAtTime(t, 100);
+        bounceKeys(transformProps(pill).scale, t, 0.4, [0, 0], [100, 100], 1, 0.14);
+    }
+
+    function fitInto(layer, w, h) { try { var r = layer.sourceRectAtTime(0, false); var sc = Math.min(w / r.width, h / r.height) * 100; transformProps(layer).scale.setValue([sc, sc]); } catch (e) {} }
+
+    // Premium DXED app window (frame + browser dots + glow border + content), animated on markers.
+    function buildDXEDAppWindow(comp, nameP, opts, s, shotLayer) {
+        var cw = 1100, ch = 660, center = [comp.width / 2, comp.height * 0.55];
+        var ctrl = renameLayer(addNull(comp, nameP + " Ctrl"), nameP + " Ctrl");
+        transformProps(ctrl).anchor.setValue([0, 0]); transformProps(ctrl).pos.setValue(center);
+        var frame = addRoundedRect(comp, [cw, ch], 30, BRAND.navy, nameP + " Frame");
+        transformProps(frame).pos.setValue(center); addShadow(frame, 90, 170, 20); frame.parent = ctrl;
+        // glow border (pulses on a marker)
+        var border = addRoundedRect(comp, [cw + 6, ch + 6], 32, BRAND.purple, nameP + " Glow Border"); makeBorder(border, BRAND.purple, 6); addGlow(border, 50, 1.8, BRAND.glow);
+        transformProps(border).pos.setValue(center); border.parent = ctrl; transformProps(border).opac.setValue(0);
+        // browser dots
+        var dotCols = [hexToRGB("#FF5F57"), hexToRGB("#FEBC2E"), hexToRGB("#28C840")], dots = [];
+        for (var d = 0; d < 3; d++) { var dot = renameLayer(addCircle(comp, 20, dotCols[d], nameP + " Dot " + (d + 1)), nameP + " Dot " + (d + 1)); transformProps(dot).pos.setValue([center[0] - cw / 2 + 34 + d * 30, center[1] - ch / 2 + 30]); dot.parent = ctrl; dots.push(dot); }
+        // content: real screenshot or placeholder profile/post cards
+        if (shotLayer) { var shot = placeAsset(shotLayer, comp); renameLayer(shot, nameP + " Screenshot"); centerLayer(shot, comp); fitInto(shot, cw - 52, ch - 100); transformProps(shot).pos.setValue([center[0], center[1] + 22]); shot.parent = ctrl; }
+        else {
+            var inner = renameLayer(addRoundedRect(comp, [cw - 52, ch - 100], 16, hexToRGB("#12122A"), nameP + " Inner"), nameP + " Inner"); transformProps(inner).pos.setValue([center[0], center[1] + 22]); inner.parent = ctrl;
+            var prof = addRoundedRect(comp, [cw - 130, 120], 18, BRAND.navy, nameP + " Profile Card"); transformProps(prof).pos.setValue([center[0], center[1] - ch / 2 + 150]); addGlow(prof, 10, 0.8, BRAND.purple); prof.parent = ctrl;
+            var avatar = addCircle(comp, 76, BRAND.purple, nameP + " Avatar"); transformProps(avatar).pos.setValue([center[0] - (cw - 130) / 2 + 70, center[1] - ch / 2 + 150]); avatar.parent = ctrl;
+            for (var p = 0; p < 2; p++) {
+                var post = addRoundedRect(comp, [cw - 130, 150], 16, BRAND.navy, nameP + " Post Card " + (p + 1)); transformProps(post).pos.setValue([center[0], center[1] + 20 + p * 175]); addGlow(post, 8, 0.6, BRAND.blue); post.parent = ctrl;
+                var bar = addRoundedRect(comp, [cw - 300, 16], 8, BRAND.purple, nameP + " Post Bar " + (p + 1)); transformProps(bar).pos.setValue([center[0] - 60, center[1] - 10 + p * 175]); transformProps(bar).opac.setValue(80); bar.parent = ctrl;
+            }
+        }
+        // intro slide-in + fade on inT
+        var cp = transformProps(ctrl); var rest = cp.scale.value;
+        anim2(cp.pos, opts.inT, s.duration + 0.3, [center[0] + 720, center[1]], center, "Snappy");
+        cp.opac.setValueAtTime(Math.max(0, opts.inT - 0.05), 0); anim2(cp.opac, opts.inT, 0.4, 0, 100, "Smooth");
+        // dots pop on dotsT
+        if (opts.dotsT) for (var di = 0; di < dots.length; di++) { var dop = transformProps(dots[di]).opac; dop.setValueAtTime(opts.dotsT - 0.05, 0); dop.setValueAtTime(opts.dotsT, 100); bounceKeys(transformProps(dots[di]).scale, opts.dotsT + di * 0.05, 0.35, [0, 0], [100, 100], 1, 0.16); }
+        // glow border pulse on glowT
+        if (opts.glowT) { var bo = transformProps(border).opac; bo.setValueAtTime(opts.glowT - 0.05, 0); bo.setValueAtTime(opts.glowT, 100); bo.setValueAtTime(opts.glowT + 0.6, 55); }
+        else transformProps(border).opac.setValue(55);
+        // zoom on zoomT
+        if (opts.zoomT) { cp.scale.setValueAtTime(opts.zoomT, rest); cp.scale.setValueAtTime(opts.zoomT + 0.5, [rest[0] * 1.12, rest[1] * 1.12]); easeProperty(cp.scale, 80, 80); }
+        try { cp.pos.expression = "wiggle(0.4, 5)"; } catch (e) {}
+        try { ctrl.motionBlur = true; } catch (e) {}
+        return { ctrl: ctrl, frame: frame, center: center, w: cw, h: ch };
+    }
+
+    /* --- individual promo scenes (marker-synced) ----------------------- */
+
+    function promoScene1(comp, wm, t0, t1, assets, s) {  // Logo Intro
+        var W = comp.width, H = comp.height;
+        var m1 = mAt(wm, 0, t0), m2 = mAt(wm, 1, t0 + 0.5), m3 = mAt(wm, 2, t0 + 1), m4 = mAt(wm, 3, t0 + 1.5), m5 = mAt(wm, 4, t0 + 2), m6 = mAt(wm, 5, t0 + 2.5), m7 = mAt(wm, 6, t0 + 3);
+        var logo = renameLayer(addTextLayer(comp, (assets.logo && assets.logo instanceof TextLayer) ? getTextString(assets.logo, "DXED") : "DXED", 230, BRAND.white), "SCENE 01 - Logo Text");
+        transformProps(logo).pos.setValue([W / 2, H * 0.45]); addGlow(logo, 60, 2, BRAND.purple);
+        transformProps(logo).opac.setValueAtTime(Math.max(0, m1 - 0.05), 0);
+        applyPopPreset(logo, "Logo Impact Pop", mergeS(s, { time: m1 }));
+        // glow pulse ring (m2)
+        var ring = renameLayer(addCircle(comp, 520, BRAND.purple, "SCENE 01 - Glow Pulse"), "SCENE 01 - Glow Pulse"); zeroFill(ring); addStroke(ring, BRAND.glow, 12); addGlow(ring, 60, 2, BRAND.glow); transformProps(ring).pos.setValue([W / 2, H * 0.45]);
+        var ro = transformProps(ring).opac; ro.setValueAtTime(m2 - 0.05, 0); ro.setValueAtTime(m2, 90); ro.setValueAtTime(m2 + 0.6, 0);
+        var rs = transformProps(ring).scale; rs.setValueAtTime(m2, [40, 40]); rs.setValueAtTime(m2 + 0.6, [130, 130]); easeProperty(rs, 70, 70);
+        // background shapes bounce (m3)
+        for (var i = 0; i < 3; i++) popCardAt(comp, "SCENE 01 - Background Shapes " + (i + 1), [220, 140], [W * (0.3 + i * 0.2), H * 0.72], m3 + i * 0.08, BRAND.navy, i === 1 ? BRAND.blue : BRAND.purple);
+        // subtitle slides up (m4)
+        promoText(comp, "SCENE 01 - Subtitle", "A new place to build.", 74, 0.62, m4, t1 - 0.15, "Slide Up", s);
+        // quick flash (m5)
+        promoFlash(comp, m5, false, "Beat Flash 01");
+        // logo scales forward (m6)
+        var ls = transformProps(logo).scale; ls.setValueAtTime(m6, [100, 100]); ls.setValueAtTime(m6 + 0.5, [128, 128]); easeProperty(ls, 80, 80);
+        // background glow expands (m7)
+        var bgG = renameLayer(addCircle(comp, 720, BRAND.purple, "SCENE 01 - BG Glow Expand"), "SCENE 01 - BG Glow Expand"); transformProps(bgG).pos.setValue([W / 2, H * 0.5]); addBlur(bgG, 150); bgG.moveToEnd();
+        var bo = transformProps(bgG).opac; bo.setValueAtTime(m7, 0); bo.setValueAtTime(m7 + 0.6, 30); var bz = transformProps(bgG).scale; bz.setValueAtTime(m7, [60, 60]); bz.setValueAtTime(m7 + 0.9, [130, 130]); easeProperty(bz, 80, 80);
+        animateOutLayer(logo, t1 - 0.1, 0.35);
+        return mLabel(wm, 0) + ": logo pop | " + mLabel(wm, 1) + ": glow pulse | " + mLabel(wm, 2) + ": shapes bounce | " + mLabel(wm, 3) + ": subtitle slides up | " + mLabel(wm, 4) + ": flash | " + mLabel(wm, 5) + ": logo scales fwd | " + mLabel(wm, 6) + ": bg glow expands | end: flash transition";
+    }
+
+    function promoScene2(comp, wm, t0, t1, assets, s) {  // Hero Statement
+        var W = comp.width, H = comp.height;
+        var m1 = mAt(wm, 0, t0), m3 = mAt(wm, 2, t0 + 1), m4 = mAt(wm, 3, t0 + 1.5), m6 = mAt(wm, 5, t0 + 2.5);
+        // background cards move with the beat
+        for (var i = 0; i < 4; i++) slideCardAt(comp, "SCENE 02 - BG Card " + (i + 1), [260, 160], [W * (0.2 + i * 0.2), H * 0.75], mAt(wm, i, t0 + i * 0.5), [dirOffset(i % 2 ? "Left" : "Right", 200)[0], 0], BRAND.navy);
+        promoText(comp, "SCENE 02 - Hero Text", "This is DXED.", 150, 0.4, m1, m4 + 0.2, "Snap Pop", s);
+        promoText(comp, "SCENE 02 - Hero Words", "Post. Build. Connect.", 92, 0.58, m4, t1 - 0.15, "Word Pop", s);
+        promoCameraPush(comp, m3, t1 - m3, 1.1, "SCENE 02 - Camera Push");
+        return mLabel(wm, 0) + ": 'This is DXED.' snaps in | " + mLabel(wm, 3) + ": words animate one-by-one | " + mLabel(wm, 2) + ": camera push | bg cards move on beat | end: flash cut";
+    }
+
+    function promoScene3(comp, wm, t0, t1, assets, s) {  // App Window Reveal
+        var m1 = mAt(wm, 0, t0), m2 = mAt(wm, 1, t0 + 0.5), m3 = mAt(wm, 2, t0 + 1), m4 = mAt(wm, 3, t0 + 1.5), m5 = mAt(wm, 4, t0 + 2), m6 = mAt(wm, 5, t0 + 2.5), m7 = mAt(wm, 6, t0 + 3), m8 = mAt(wm, 7, t0 + 3.5);
+        var win = buildDXEDAppWindow(comp, "SCENE 03 - App Window", { inT: m1, dotsT: m2, glowT: m3, zoomT: m5 }, s, assets.shots.length ? assets.shots[0] : null);
+        promoText(comp, "SCENE 03 - Text Profile", "Your profile.", 84, 0.14, m4, m6, "Slide Up", s);
+        promoText(comp, "SCENE 03 - Text Content", "Your content.", 84, 0.14, m6, m8, "Slide Up", s);
+        promoText(comp, "SCENE 03 - Text World", "Your world.", 84, 0.14, m8, t1 - 0.15, "Glow Reveal", s);
+        promoCallout(comp, win.ctrl, [win.center[0] + win.w / 2 - 40, win.center[1] - win.h / 2 + 10], "New", m7);
+        return mLabel(wm, 0) + ": window slides in | " + mLabel(wm, 1) + ": dots pop | " + mLabel(wm, 2) + ": glow border | " + mLabel(wm, 3) + ": 'Your profile.' | " + mLabel(wm, 4) + ": window zoom | " + mLabel(wm, 5) + ": 'Your content.' | " + mLabel(wm, 6) + ": UI callout | " + mLabel(wm, 7) + ": 'Your world.' | end: blur-flash";
+    }
+
+    function promoScene4(comp, wm, t0, t1, assets, s) {  // Creator Section
+        var W = comp.width, H = comp.height;
+        var m0 = mAt(wm, 0, t0), m2 = mAt(wm, 2, t0 + 1), m5 = mAt(wm, 4, t0 + 2);
+        promoText(comp, "SCENE 04 - Title", "Built for creators.", 110, 0.24, m0, t1 - 0.15, "Bounce In", s);
+        // floating post/profile cards pop on separate markers
+        for (var i = 0; i < 3; i++) popCardAt(comp, "SCENE 04 - Creator Cards " + (i + 1), [340, 210], [W * (0.28 + i * 0.22), H * 0.62], mAt(wm, i + 1, t0 + 0.5 + i * 0.4), BRAND.navy, i === 1 ? BRAND.blue : BRAND.purple);
+        // UI chips slide in from sides
+        slideCardAt(comp, "SCENE 04 - Creator Chips 1", [220, 78], [W * 0.2, H * 0.82], mAt(wm, 3, t0 + 1.5), [-260, 0], BRAND.purple);
+        slideCardAt(comp, "SCENE 04 - Creator Chips 2", [220, 78], [W * 0.8, H * 0.82], mAt(wm, 4, t0 + 2), [260, 0], BRAND.blue);
+        promoText(comp, "SCENE 04 - Sub", "Show your work.  Get seen.", 60, 0.9, m5, t1 - 0.15, "Premium Fade Up", s);
+        return mLabel(wm, 0) + ": 'Built for creators.' bounces | cards pop across markers | UI chips slide from sides | glow pulse on strong beats | end: flash";
+    }
+
+    function promoScene5(comp, wm, t0, t1, assets, s) {  // Community Section
+        var W = comp.width, H = comp.height;
+        var m0 = mAt(wm, 0, t0), m4 = mAt(wm, 3, t0 + 1.5);
+        promoText(comp, "SCENE 05 - Title", "Find your community.", 108, 0.26, m0, t1 - 0.15, "Glow Reveal", s);
+        // community cards slide in one by one
+        for (var i = 0; i < 4; i++) slideCardAt(comp, "SCENE 05 - Community Cards " + (i + 1), [300, 120], [W * (0.2 + i * 0.2), H * 0.6], mAt(wm, i, t0 + i * 0.5), [0, 120], BRAND.navy);
+        // notification-style card pops
+        popCardAt(comp, "SCENE 05 - Notification Card", [360, 110], [W * 0.72, H * 0.34], mAt(wm, 5, t0 + 2.5), BRAND.navy, BRAND.purple);
+        promoText(comp, "SCENE 05 - Sub", "Build around what you love.", 60, 0.86, m4, t1 - 0.15, "Slide Up", s);
+        promoCameraPush(comp, t0, t1 - t0, 1.08, "SCENE 05 - Camera Push");
+        return mLabel(wm, 0) + ": 'Find your community.' glow reveal | community cards slide one by one | notification pops | camera slow push | end: glow wipe";
+    }
+
+    function promoScene6(comp, wm, t0, t1, assets, s) {  // Projects Section (premium, later)
+        var m1 = mAt(wm, 0, t0), m3 = mAt(wm, 2, t0 + 1), m5 = mAt(wm, 4, t0 + 2), m7 = mAt(wm, 6, t0 + 3);
+        promoText(comp, "SCENE 06 - Title", "Projects can build here too.", 96, 0.2, m1, t1 - 0.2, "Premium Fade Up", s);
+        var win = buildDXEDAppWindow(comp, "SCENE 06 - Projects Window", { inT: m1, dotsT: m3, glowT: m3, zoomT: m5 }, s, assets.shots.length > 1 ? assets.shots[1] : (assets.shots.length ? assets.shots[0] : null));
+        // feature labels pop around the window
+        promoCallout(comp, win.ctrl, [win.center[0] - win.w / 2 + 20, win.center[1] - win.h / 2 - 10], "Communities", m3);
+        promoCallout(comp, win.ctrl, [win.center[0] + win.w / 2 - 40, win.center[1] - 40], "Content", m5);
+        promoCallout(comp, win.ctrl, [win.center[0] - win.w / 2 + 40, win.center[1] + win.h / 2 - 10], "Updates", m7);
+        promoFlash(comp, m5, true, "SCENE 06 - Purple Flash");
+        promoCameraPush(comp, m1, t1 - m1, 1.08, "SCENE 06 - Camera Push");
+        return mLabel(wm, 0) + ": window zooms in | text fades clean | " + mLabel(wm, 2) + "/" + mLabel(wm, 4) + "/" + mLabel(wm, 6) + ": feature labels pop | " + mLabel(wm, 4) + ": purple flash | smooth camera push | end: transition";
+    }
+
+    function promoScene7(comp, wm, t0, t1, assets, s) {  // Final CTA
+        var W = comp.width, H = comp.height;
+        // find strong marker in window for the main pop
+        var strongT = mAt(wm, 0, t0); for (var i = 0; i < wm.length; i++) if (markerRole(wm[i].index) !== "beat") { strongT = wm[i].time; break; }
+        var nextT = mAt(wm, 2, strongT + 1);
+        // background shapes pull inward
+        for (var b = 0; b < 4; b++) { var sh = addRoundedRect(comp, [180, 120], 24, b % 2 ? BRAND.blue : BRAND.purple, "SCENE 07 - Shape " + (b + 1)); addGlow(sh, 16, 1, BRAND.purple); var from = [W * (0.15 + b * 0.23), H * (b % 2 ? 0.2 : 0.85)]; transformProps(sh).pos.setValue(from); anim2(transformProps(sh).pos, t0, 1.2, from, [W / 2, H / 2], "Cinematic"); anim2(transformProps(sh).opac, t0, 1.2, 60, 0, "Smooth"); }
+        // glow ring expands
+        var ring = renameLayer(addCircle(comp, 500, BRAND.purple, "SCENE 07 - Glow Ring"), "SCENE 07 - Glow Ring"); zeroFill(ring); addStroke(ring, BRAND.glow, 14); addGlow(ring, 70, 2.2, BRAND.glow); transformProps(ring).pos.setValue([W / 2, H * 0.45]);
+        var ro = transformProps(ring).opac; ro.setValueAtTime(strongT - 0.05, 0); ro.setValueAtTime(strongT, 90); ro.setValueAtTime(t1 - 0.6, 40);
+        var rs = transformProps(ring).scale; rs.setValueAtTime(strongT, [40, 40]); rs.setValueAtTime(strongT + 1, [140, 140]); easeProperty(rs, 80, 80);
+        var cta = renameLayer(addTextLayer(comp, "Join DXED.", 170, BRAND.white), "SCENE 07 - Final CTA"); transformProps(cta).pos.setValue([W / 2, H * 0.42]); addGlow(cta, 55, 2.2, BRAND.purple);
+        transformProps(cta).opac.setValueAtTime(Math.max(0, strongT - 0.05), 0); applyPopPreset(cta, "Pop With Glow Ring", mergeS(s, { time: strongT }));
+        promoText(comp, "SCENE 07 - URL", "DXED.app", 96, 0.6, nextT, null, "Slide Up", s);
+        promoCameraPush(comp, t0, t1 - t0 - 0.5, 1.12, "SCENE 07 - Camera Push");
+        promoFlash(comp, t1 - 0.5, false, "SCENE 07 - Final Flash");
+        // fade to black
+        var fade = addSolid(comp, BRAND.black, "SCENE 07 - Fade To Black"); var fo = transformProps(fade).opac; fo.setValueAtTime(t1 - 0.5, 0); fo.setValueAtTime(t1, 100); easeProperty(fo, 80, 80); fade.inPoint = t1 - 0.6;
+        return "M" + (wm.length ? wm[0].index : "?") + "→strong: 'Join DXED.' pops + glow ring | next marker: 'DXED.app' slides up | shapes pull inward | slow camera push | final flash | fade to black";
+    }
+
+    // Master builder: 30-second, comp-marker-driven DXED promo.
     function buildFullPromo() {
         undoable("Build Full DXED Promo", function () {
-            var s = buildSettings();
+            var s = mergeS(buildSettings(), { duration: 0.42 });   // snappy timing for beat sync
+            var W = 1920, H = 1080, FPS = 30, DUR = 30;
+
+            // 1. Read the active comp's markers + assets BEFORE creating the new comp.
             var srcComp = activeComp(true);
             var assets = srcComp ? grabAssets(srcComp) : { logo: null, shots: [] };
-            var comp = app.project.items.addComp("DXED Promo Motion Sequence", 1920, 1080, 1, 15, 30);
-            comp.openInViewer();
-            addSolid(comp, BRAND.black, "DXED BG").moveToEnd();
+            var srcMarkers = srcComp ? getCompMarkers(srcComp) : [];
 
-            var plan = [
-                ["Scene 01 - DXED Logo Intro",       2.0],
-                ["Scene 02 - Hero Statement",        2.0],
-                ["Scene 03 - App Window Reveal",     2.6],
-                ["Scene 04 - Creator Section",       2.2],
-                ["Scene 05 - Community Section",     2.2],
-                ["Scene 06 - Projects Section",      2.0],
-                ["Scene 07 - Final CTA",             2.0]
+            // 2. Create the 30s comp + background.
+            var comp = app.project.items.addComp("DXED 30 Second Promo", W, H, 1, DUR, FPS);
+            comp.openInViewer();
+            buildPromoBackground(comp);
+
+            // 3. Markers: reuse existing (if you already placed beat markers) or generate defaults.
+            var usedExisting = false;
+            if (srcMarkers.length >= 4) { for (var m = 0; m < srcMarkers.length; m++) if (srcMarkers[m].time < DUR - 1e-4) addCompMarker(comp, srcMarkers[m].time, srcMarkers[m].comment || "Beat"); usedExisting = true; }
+            else generateDefaultMarkers(comp);
+            var markers = getCompMarkers(comp);
+
+            // 4. Camera controller (real camera + null rig).
+            var rig = ensureCameraRig(comp); renameLayer(rig.ctrl, "Camera Controller");
+
+            // 5. Scenes, each mapped to a time window and its markers.
+            var scenes = [
+                ["SCENE 01 - Logo Intro",        0,  4,  promoScene1],
+                ["SCENE 02 - Hero Statement",    4,  8,  promoScene2],
+                ["SCENE 03 - App Window Reveal", 8,  12, promoScene3],
+                ["SCENE 04 - Creator Section",   12, 16, promoScene4],
+                ["SCENE 05 - Community Section",  16, 20, promoScene5],
+                ["SCENE 06 - Projects Section",  20, 25, promoScene6],
+                ["SCENE 07 - Final CTA",         25, 30, promoScene7]
             ];
-            var t = 0, recipe = [];
-            for (var i = 0; i < plan.length; i++) {
-                addCompMarker(comp, t, plan[i][0]);
-                recipe.push(buildScene(comp, plan[i][0], t, plan[i][1], assets, s));
-                t += plan[i][1];
+            var recipe = [];
+            for (var i = 0; i < scenes.length; i++) {
+                var wm = markersInRange(markers, scenes[i][1], scenes[i][2]);
+                var line = scenes[i][3](comp, wm, scenes[i][1], scenes[i][2], assets, s);
+                recipe.push(scenes[i][0] + "\n" + fmtTime(scenes[i][1]) + " - " + fmtTime(scenes[i][2]) + "\n" + line);
+                if (i < scenes.length - 1) promoTransition(comp, scenes[i][2], i);   // scene change on boundary
             }
-            comp.comment = recipe.join("\n\n");
-            buildRecipeLayer(comp, recipe);
-            alert("Built 'DXED Promo Motion Sequence'\n" + plan.length + " scenes, 15s, markers per scene.\nRecipe saved to comp comment + guide layer.", SCRIPT_NAME);
+
+            // 6. Global rhythm: strong pulse + small camera bump on every 4th marker (not at boundaries).
+            var boundaries = [4, 8, 12, 16, 20, 25];
+            for (var mi = 0; mi < markers.length; mi++) {
+                var role = markerRole(markers[mi].index), bt = markers[mi].time, nearB = false;
+                for (var bI = 0; bI < boundaries.length; bI++) if (Math.abs(bt - boundaries[bI]) < 0.2) nearB = true;
+                if (nearB) continue;
+                if (role === "strong") { subtleBeat(comp, bt, "Strong Hit Flash " + markers[mi].index); addCameraBump(comp, bt, 7); }
+                else if (role === "drop") subtleBeat(comp, bt, "Drop Pulse " + markers[mi].index);
+            }
+
+            // 7. Recipe layer + comp comment.
+            var header = (usedExisting ? "Using your existing comp markers (" + markers.length + ")." : "Default beat markers added (" + markers.length + "): 0.5s beat / 2s strong / 4s scene.") +
+                "\nEvery 4th marker = strong hit (pulse + camera bump). Every 8th marker = scene change / drop.\n" +
+                "Screenshot window appears in SCENE 03 (and SCENE 06). Final CTA starts at 0:25.\n";
+            comp.comment = "DXED 30 SECOND PROMO\n\n" + header + "\n" + recipe.join("\n\n");
+            buildPromoRecipeLayer(comp, header, recipe);
+
+            alert("Built 'DXED 30 Second Promo'\n7 scenes, 30s, " + markers.length + " comp markers.\n" +
+                  (usedExisting ? "Synced to your existing markers." : "Default beat markers added — replace them with your own beats and rebuild.") +
+                  "\nGuide layer: 'DXED Promo Recipe'.", SCRIPT_NAME);
         });
+    }
+
+    function buildPromoRecipeLayer(comp, header, recipeArr) {
+        var text = "DXED PROMO RECIPE\n\n" + header + "\n" + recipeArr.join("\n\n");
+        var tl = renameLayer(addTextLayer(comp, text, 22, BRAND.glow), "DXED Promo Recipe"); tl.enabled = false; tl.shy = true;
+        try { var sp = tl.property("ADBE Text Properties").property("ADBE Text Document"); var td = sp.value; td.justification = ParagraphJustification.LEFT_JUSTIFY; sp.setValue(td); } catch (e) {}
+        transformProps(tl).anchor.setValue([0, 0]); transformProps(tl).pos.setValue([70, 90]);
+        return tl;
     }
 
     /* ===================================================================== *
