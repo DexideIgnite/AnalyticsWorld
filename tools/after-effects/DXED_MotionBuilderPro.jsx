@@ -438,7 +438,7 @@
             shine: /shine|light sweep/.test(n), cursor: /cursor|click|tap/.test(n),
             callout: /callout|label|feature/.test(n), loop: /loop|hover|pulse|wiggle|float/.test(n),
             elastic: /elastic/.test(n), hard: /hard|heavy|slam|impact|bass|snap|slam/.test(n),
-            soft: /soft|tiny|micro/.test(n), double: /double/.test(n),
+            soft: /soft|tiny|micro/.test(n), dbl: /double/.test(n),
             out: /\bout\b|exit|outro|pull/.test(n), stagger: /stagger|stack|layered/.test(n)
         };
     }
@@ -466,7 +466,7 @@
         var comp = layer.containingComp, t0 = s.time, dur = s.duration, m = mods(name);
         var dir = parseDir(name, "Center");
         var amt = 0.12 + 0.05 * CFG.bounce * (m.hard ? 1.6 : (m.soft ? 0.5 : 1));
-        var wob = m.double ? 2 : (m.elastic ? 3 : 1);
+        var wob = m.dbl ? 2 : (m.elastic ? 3 : 1);
         var tp = transformProps(layer);
         var useScale = (dir === "Center") || /scale|pop|zoom|spring|pulse|impact|slam|logo|card|window|shape|text|button|ui/.test(name.toLowerCase()) && dir === "Center";
         if (/zoom/.test(name.toLowerCase())) useScale = true;
