@@ -195,7 +195,8 @@
         style: "Clean Premium", energy: "Medium", duration: 0.6, delay: 0.08, distance: 300,
         bounce: 1, glow: 1, blur: 1, flash: 1, scale: 100, rotation: 15,
         markerOffset: 0, randomVar: 20, seed: 12345, applyTo: "each",
-        fastPace: true, fit: "current", speed: 22   // fit: "current" | "layer" | "comp";  speed = % of length used by the in-animation
+        fastPace: true, fit: "current", speed: 22,   // fit: "current" | "layer" | "comp";  speed = % of length used by the in-animation
+        anim: "in"   // "in" (entrance) | "out" (exit/end) | "inout" (both)
     };
     function styleObj() { return STYLE_PRESETS[CFG.style] || STYLE_PRESETS["Clean Premium"]; }
     function styleEasing() { return styleObj().easing; }
@@ -1156,6 +1157,20 @@
     function applyOneLayerPreset(cat, name, layer, s) {
         switch (cat) { case "Bounce": applyBouncePreset(layer, name, s); break; case "Slide": applySlidePreset(layer, name, s); break; case "Pop / Scale": applyPopPreset(layer, name, s); break; case "Fade": applyFadePreset(layer, name, s); break; case "Blur": applyBlurPreset(layer, name, s); break; case "Text": applyTextPreset(layer, name, s); break; case "Combo Presets": applyComboPreset(layer, name, s); break; }
     }
+    // Exit / end version of a preset: animates FROM the rest state OUT, ending at s.time+dur.
+    function applyExitPreset(cat, name, layer, s) {
+        var comp = layer.containingComp, t0 = s.time, dur = s.duration, tp = transformProps(layer), m = mods(name), n = name.toLowerCase();
+        var dir = parseDir(name, "Down");
+        if (cat === "Fade" || /fade/.test(n)) { anim2(tp.opac, t0, dur, 100, 0, "Smooth"); if (dir !== "Center") { var rp = tp.pos.valueAtTime(t0, false); var of = dirOffset(dir, s.distance * 0.4); anim2(tp.pos, t0, dur, rp, [rp[0] - of[0], rp[1] - of[1]], "Smooth"); } return; }
+        if (cat === "Slide" || /slide|whip/.test(n)) { var rest = tp.pos.valueAtTime(t0, false); var off = dirOffset(dir, s.distance); anim2(tp.pos, t0, dur, rest, [rest[0] - off[0], rest[1] - off[1]], easingFor(m, "Snappy")); anim2(tp.opac, t0 + dur * 0.4, dur * 0.6, 100, 0, "Smooth"); return; }
+        if (cat === "Bounce" || /bounce/.test(n)) { var rs = tp.scale.valueAtTime(t0, false); bounceKeys(tp.scale, t0, dur, rs, [0, 0], m.elastic ? 5 : 1, 0.14); anim2(tp.opac, t0 + dur * 0.5, dur * 0.5, 100, 0, "Smooth"); return; }
+        if (cat === "Pop / Scale" || /pop|scale/.test(n)) { var rs2 = tp.scale.valueAtTime(t0, false); anim2(tp.scale, t0, dur, rs2, [0, 0], "Overshoot"); anim2(tp.opac, t0 + dur * 0.4, dur * 0.6, 100, 0, "Smooth"); return; }
+        if (cat === "Blur" || /blur/.test(n)) { var b = addBlur(layer, 0); if (b) { var bp = b.property(1); bp.setValueAtTime(t0, 0); bp.setValueAtTime(t0 + dur, 90); easeProperty(bp, 75, 75); } anim2(tp.opac, t0, dur, 100, 0, "Smooth"); return; }
+        if (cat === "Text") { if (/slam|impact|pop|scale/.test(n)) { anim2(tp.scale, t0, dur, tp.scale.valueAtTime(t0, false), [0, 0], "Overshoot"); anim2(tp.opac, t0 + dur * 0.3, dur * 0.7, 100, 0, "Smooth"); } else { var r3 = tp.pos.valueAtTime(t0, false); anim2(tp.pos, t0, dur, r3, [r3[0], r3[1] + 60], "Smooth"); anim2(tp.opac, t0, dur, 100, 0, "Smooth"); } return; }
+        // default (Combo / anything): fade + slight scale-down out
+        anim2(tp.opac, t0, dur, 100, 0, "Smooth"); var rs3 = tp.scale.valueAtTime(t0, false); anim2(tp.scale, t0, dur, rs3, [rs3[0] * 0.85, rs3[1] * 0.85], "Smooth");
+        if (m.flash) addFlash(comp, t0, flashColor(), 0.12, 2);
+    }
     function applyPreset(cat, name, atTime) {
         var comp = activeComp(); if (!comp) return; var s = buildSettings(); var t = (atTime === null || atTime === undefined) ? comp.time : atTime; s.time = t;
         if (isLayerCategory(cat) && atTime === undefined && /marker|every beat|every 4|every 8|on beat/.test(name.toLowerCase())) { if (markerTimes(comp).length) { applyToMarkers(cat, name); return; } }
@@ -1172,8 +1187,14 @@
             for (var i = 0; i < layers.length; i++) {
                 var tim = timingForLayer(layers[i], comp);
                 var stagger = (CFG.applyTo === "each") ? i * CFG.delay : 0;
-                applyOneLayerPreset(cat, name, layers[i], mergeS(s, { time: tim.time + stagger, duration: tim.duration }));
-                if (CFG.fit !== "current") addAutoExit(layers[i], tim.endT);
+                var inT = tim.time + stagger;
+                var endT = tim.endT;   // null when Fit = Current Time
+                var outStart;
+                if (endT) outStart = Math.max(inT + tim.duration + 0.1, endT - tim.duration);
+                else outStart = (CFG.anim === "out") ? (comp.time + stagger) : (inT + Math.max(1.0, tim.duration * 3));
+                if (CFG.anim === "in" || CFG.anim === "inout") applyOneLayerPreset(cat, name, layers[i], mergeS(s, { time: inT, duration: tim.duration }));
+                if (CFG.anim === "out" || CFG.anim === "inout") applyExitPreset(cat, name, layers[i], mergeS(s, { time: outStart, duration: tim.duration }));
+                if (CFG.anim === "in" && CFG.fit !== "current") addAutoExit(layers[i], endT);
             }
         });
     }
@@ -1354,12 +1375,15 @@
         function buildPresetsTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
             tab.add("statictext", undefined, "Every preset lives here — pick a Category (Bounce, Slide, Pop, Fade, Blur, Text, Window, Shape, Flash, Transition, Camera, Beat Sync, Combo, Scenes), then a Preset.");
+            var aRow = trow(tab); aRow.add("statictext", undefined, "Animate:"); var animDD = aRow.add("dropdownlist", undefined, ["In (start)", "Out (end)", "In + Out"]); animDD.selection = (CFG.anim === "out" ? 1 : (CFG.anim === "inout" ? 2 : 0)); animDD.onChange = function () { CFG.anim = animDD.selection.index === 1 ? "out" : (animDD.selection.index === 2 ? "inout" : "in"); if (typeof syncAnim === "function") syncAnim(); };
+            aRow.add("statictext", undefined, "Out/In+Out: set Fit = Layer or Comp so the exit lands at the end.");
             makeCatTab(tab, CATEGORY_ORDER);
         }
         function buildQuickTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
             var c0 = trow(tab); bigBtn(c0, "Center", function () { centerSelected(true, true, "Center"); }); bigBtn(c0, "Center H", function () { centerSelected(true, false, "Center H"); }); bigBtn(c0, "Center V", function () { centerSelected(false, true, "Center V"); }); bigBtn(c0, "Anchor→Center", anchorToCenterSelected);
             var tRow = trow(tab); var fc = tRow.add("checkbox", undefined, "Fast pace"); fc.value = CFG.fastPace; fc.onClick = function () { CFG.fastPace = fc.value; }; tRow.add("statictext", undefined, "Fit:"); var fd = tRow.add("dropdownlist", undefined, ["Current", "Layer", "Comp"]); fd.selection = 0; fd.onChange = function () { CFG.fit = fd.selection.index === 1 ? "layer" : (fd.selection.index === 2 ? "comp" : "current"); }; tRow.add("statictext", undefined, "Speed%:"); var sp2 = tRow.add("edittext", undefined, "" + CFG.speed); sp2.characters = 4; sp2.onChange = function () { CFG.speed = clamp(pf(sp2, 22), 4, 90); };
+            var aRow = trow(tab); aRow.add("statictext", undefined, "Animate:"); var animDD2 = aRow.add("dropdownlist", undefined, ["In (start)", "Out (end)", "In + Out"]); animDD2.selection = (CFG.anim === "out" ? 1 : (CFG.anim === "inout" ? 2 : 0)); animDD2.onChange = function () { CFG.anim = animDD2.selection.index === 1 ? "out" : (animDD2.selection.index === 2 ? "inout" : "in"); }; aRow.add("statictext", undefined, "(Out = end preset; use Fit Layer/Comp)");
             var r1 = trow(tab); bigBtn(r1, "Build Full 30s Promo", function () { buildFullPromo(false); }); bigBtn(r1, "Make Premium Window", makeScreenshotWindow);
             var r2 = trow(tab); bigBtn(r2, "Add Shape Pack", function () { var c = activeComp(); if (c) addShapePack(c, "Clean Tech Shape Pack"); }); bigBtn(r2, "Apply Marker Actions", applyMarkerActions);
             var r3 = trow(tab); bigBtn(r3, "Flash Current Time", function () { var c = activeComp(); if (c) undoable("Flash", function () { applyFlashPreset(c.time, "Clean Premium Flash", buildSettings()); }); }); bigBtn(r3, "Flash All Markers", function () { applyToMarkers("Flash / Impact", "Beat Flash"); });
