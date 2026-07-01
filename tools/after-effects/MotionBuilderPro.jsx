@@ -555,9 +555,81 @@
         var comp = (layer && layer.containingComp) || activeComp(); if (!comp) return;
         var n = name.toLowerCase(); var t0 = s.time;
         var slot = layer ? layer : (ASSETS.shot1 || null);
+        if (/3d|tilt|flip|stand|orbit|hover|sway|parallax|depth|turn/.test(n)) return build3DWindow(comp, "3D Window", name, s, (slot && slot.source) ? slot : null);
         var win = buildWindow(comp, "App Window", { inT: t0, dotsT: t0 + 0.4, glowT: t0 + 0.7, zoomT: /zoom|hero|feature|push/.test(n) ? t0 + 1.2 : 0, shine: /shine|premium/.test(n), cursorT: /cursor|click|tap/.test(n) ? t0 + 1.4 : 0 }, s, slot && slot.source ? slot : (layer && layer.source ? layer : slot));
         if (/callout|feature|label/.test(n)) promoCallout(comp, win.ctrl, [win.center[0] + win.w / 2 - 40, win.center[1] - win.h / 2 + 10], "New", t0 + 1.0);
         return win;
+    }
+
+    /* ===================================================================== *
+     *  12b. 3D WEBPAGE WINDOW  (screenshot -> glowing 3D window + movements)
+     * ===================================================================== */
+
+    var WINDOW3D = ["3D Hover", "3D Hover Around", "3D Sway Left Right", "3D Turn Left To Right", "3D Turn Right To Left",
+        "3D Tilt Reveal", "3D Stand Up", "3D Card Flip In", "3D Turn In", "3D Parallax Push", "3D Pull Back", "3D Orbit",
+        "3D Floating Depth", "3D Left Pass", "3D Right Pass", "3D Glow Pulse Hover", "3D Corner Peek", "3D Depth Zoom"];
+
+    function rotProps(layer) { var tg = layer.property("ADBE Transform Group"); return { x: tg.property("ADBE Rotate X"), y: tg.property("ADBE Rotate Y"), z: tg.property("ADBE Rotate Z") }; }
+    function ensure3DCamera(comp) { var has = false; for (var i = 1; i <= comp.numLayers; i++) if (comp.layer(i) instanceof CameraLayer) has = true; if (!has) { try { comp.layers.addCamera("3D Camera", [comp.width / 2, comp.height / 2]); } catch (e) {} } }
+    function posHoverExpr(cx, cy, cz, amp, zamp) { return "c=[" + cx + "," + cy + "," + cz + "]; c+[" + amp + "*Math.sin(time*0.5), " + (amp * 0.6) + "*Math.sin(time*0.7), " + zamp + "*Math.sin(time*0.4)]"; }
+
+    // Build a framed screenshot as a real 3D window (layers pushed to different Z depths).
+    function build3DWindow(comp, nameP, preset, s, slot) {
+        ensure3DCamera(comp);
+        var cw = 1100, ch = 660, cx = comp.width / 2, cy = comp.height * 0.5;
+        var ctrl = addNull(comp, nameP + " 3D Ctrl"); ctrl.threeDLayer = true;
+        var ctp = transformProps(ctrl); ctp.anchor.setValue([0, 0, 0]); ctp.pos.setValue([cx, cy, 0]);
+        function set3D(layer, z) { layer.threeDLayer = true; layer.parent = ctrl; var p = transformProps(layer).pos.value; transformProps(layer).pos.setValue([p[0], p[1], z || 0]); try { layer.motionBlur = true; } catch (e) {} }
+        // back glow (behind)
+        var backGlow = addCircle(comp, Math.max(cw, ch) * 1.4, BRAND.primary, nameP + " Back Glow"); transformProps(backGlow).pos.setValue([cx, cy]); transformProps(backGlow).opac.setValue(32); addBlur(backGlow, 130); set3D(backGlow, 120);
+        // frame + shadow
+        var frame = addRoundedRect(comp, [cw, ch], 30, BRAND.card, nameP + " Frame"); transformProps(frame).pos.setValue([cx, cy]); addShadow(frame, 100, 180, 26); set3D(frame, 0);
+        // glow border
+        var border = addRoundedRect(comp, [cw + 6, ch + 6], 32, BRAND.primary, nameP + " Glow Border"); makeBorder(border, BRAND.primary, 6); addGlow(border, 60, 2, BRAND.glow); transformProps(border).pos.setValue([cx, cy]); set3D(border, -1); transformProps(border).opac.setValue(72);
+        // browser dots (in front)
+        var dc = [hexToRGB("#FF5F57"), hexToRGB("#FEBC2E"), hexToRGB("#28C840")];
+        for (var d = 0; d < 3; d++) { var dot = addCircle(comp, 20, dc[d], nameP + " Dot " + (d + 1)); transformProps(dot).pos.setValue([cx - cw / 2 + 34 + d * 30, cy - ch / 2 + 30]); set3D(dot, -8); }
+        // screenshot content or placeholder cards
+        var shot = (slot && slot.source) ? placeAsset(slot, comp) : null;
+        if (shot) { renameLayer(shot, nameP + " Screenshot"); centerLayer(shot, comp); fitInto(shot, cw - 52, ch - 100); transformProps(shot).pos.setValue([cx, cy + 22]); set3D(shot, -2); }
+        else { var inner = addRoundedRect(comp, [cw - 52, ch - 100], 16, BRAND.bg, nameP + " Inner"); transformProps(inner).pos.setValue([cx, cy + 22]); set3D(inner, -2);
+            var prof = addRoundedRect(comp, [cw - 130, 120], 18, BRAND.card, nameP + " Profile Card"); transformProps(prof).pos.setValue([cx, cy - ch / 2 + 150]); addGlow(prof, 10, 0.8, BRAND.primary); set3D(prof, -4);
+            for (var p = 0; p < 2; p++) { var post = addRoundedRect(comp, [cw - 130, 150], 16, BRAND.card, nameP + " Post Card " + (p + 1)); transformProps(post).pos.setValue([cx, cy + 20 + p * 175]); addGlow(post, 8, 0.6, BRAND.accent); set3D(post, -4); } }
+        apply3DMove(comp, ctrl, border, preset, [cx, cy, 0], s);
+        try { ctrl.motionBlur = true; } catch (e) {}
+        return ctrl;
+    }
+
+    function apply3DMove(comp, ctrl, border, preset, center, s) {
+        var t0 = comp.time, dur = Math.max(s.duration, 0.7); var ctp = transformProps(ctrl); var R = rotProps(ctrl); var rest = ctp.scale.value; var n = preset.toLowerCase();
+        function fadeIn() { ctp.opac.setValueAtTime(Math.max(0, t0 - 0.05), 0); anim2(ctp.opac, t0, 0.5, 0, 100, "Smooth"); }
+        function introScale(mul) { ctp.scale.setValueAtTime(t0, [rest[0] * mul, rest[1] * mul, rest.length > 2 ? rest[2] : 100]); ctp.scale.setValueAtTime(t0 + dur, rest); easeProperty(ctp.scale, 80, 80); }
+        function keyRot(prop, a, b, d) { prop.setValueAtTime(t0, a); prop.setValueAtTime(t0 + d, b); easeProperty(prop, 85, 85); }
+        function slideIn(off, d) { ctp.pos.setValueAtTime(t0, [center[0] + off[0], center[1] + off[1], center[2] + off[2]]); ctp.pos.setValueAtTime(t0 + d, center); easeProperty(ctp.pos, 80, 80); }
+        function keyZ(zFrom, d) { ctp.pos.setValueAtTime(t0, [center[0], center[1], zFrom]); ctp.pos.setValueAtTime(t0 + d, [center[0], center[1], 0]); easeProperty(ctp.pos, 85, 85); }
+        function hover(amp, zamp) { try { ctp.pos.expression = posHoverExpr(center[0], center[1], center[2], amp, zamp); } catch (e) {} }
+        fadeIn();
+        if (/hover around/.test(n)) { introScale(0.85); try { R.y.expression = "12*Math.sin(time*0.6)"; R.x.expression = "-8+5*Math.sin(time*0.45)"; } catch (e) {} hover(24, 40); }
+        else if (/glow pulse hover/.test(n)) { introScale(0.9); try { R.y.expression = "7*Math.sin(time*0.6)"; R.x.setValue(-5); } catch (e) {} try { border.property("ADBE Transform Group").property("ADBE Opacity").expression = "45+45*Math.sin(time*2.2)"; } catch (e2) {} hover(12, 40); }
+        else if (/floating depth/.test(n)) { introScale(0.9); try { R.y.expression = "8*Math.sin(time*0.5)"; R.x.expression = "6*Math.sin(time*0.35)"; } catch (e) {} hover(10, 90); }
+        else if (/sway/.test(n)) { introScale(0.9); try { R.y.expression = "28*Math.sin(time*0.4)"; R.x.setValue(-6); } catch (e) {} }
+        else if (/orbit/.test(n)) { introScale(0.9); try { R.y.expression = "time*30"; } catch (e) {} }
+        else if (/corner peek/.test(n)) { introScale(0.9); try { R.x.setValue(-18); R.y.expression = "20+4*Math.sin(time*0.6)"; } catch (e) {} hover(10, 40); }
+        else if (/turn left to right/.test(n)) { introScale(0.92); keyRot(R.y, -38, 38, dur * 1.5); try { R.x.setValue(-5); } catch (e) {} }
+        else if (/turn right to left/.test(n)) { introScale(0.92); keyRot(R.y, 38, -38, dur * 1.5); try { R.x.setValue(-5); } catch (e) {} }
+        else if (/turn in/.test(n)) { introScale(0.9); keyRot(R.y, -60, 0, dur); slideIn([-500, 0, 0], dur); }
+        else if (/tilt reveal/.test(n)) { introScale(0.9); keyRot(R.x, 45, 0, dur); }
+        else if (/stand up/.test(n)) { introScale(0.9); keyRot(R.x, 80, 0, dur); }
+        else if (/card flip/.test(n)) { introScale(0.95); keyRot(R.y, 180, 0, dur); }
+        else if (/left pass/.test(n)) { slideIn([-720, 0, 0], dur); keyRot(R.y, 40, 0, dur); }
+        else if (/right pass/.test(n)) { slideIn([720, 0, 0], dur); keyRot(R.y, -40, 0, dur); }
+        else if (/parallax push|depth zoom/.test(n)) { keyZ(720, dur); try { R.x.setValue(-6); R.y.expression = "5*Math.sin(time*0.5)"; } catch (e) {} }
+        else if (/pull back/.test(n)) { keyZ(-520, dur); try { R.y.expression = "5*Math.sin(time*0.4)"; } catch (e) {} }
+        else { introScale(0.9); try { R.y.expression = "6*Math.sin(time*0.7)"; R.x.expression = "-5+3*Math.sin(time*0.5)"; } catch (e) {} hover(14, 40); }
+    }
+    function makeThreeDWindow(presetName) {
+        var comp = activeComp(); if (!comp) return; var s = buildSettings(); var sel = comp.selectedLayers;
+        undoable("3D Window: " + presetName, function () { var slot = (sel && sel.length && sel[0].source) ? sel[0] : (ASSETS.shot1 && ASSETS.shot1.source ? ASSETS.shot1 : null); build3DWindow(comp, "3D Window", presetName, s, slot); });
     }
 
     /* ===================================================================== *
@@ -1296,8 +1368,11 @@
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
             var r = trow(tab); r.add("statictext", undefined, "Window preset:"); var wDD = r.add("dropdownlist", undefined, WINDOW); wDD.selection = 0; wDD.alignment = ["fill", "center"];
             var r2 = trow(tab); bigBtn(r2, "Apply Window Preset", function () { applyPreset("Window / Screenshot", wDD.selection.text, undefined); }); bigBtn(r2, "Make Premium Window", makeScreenshotWindow);
-            var r3 = trow(tab); r3.add("statictext", undefined, "From slot:"); var slDD = r3.add("dropdownlist", undefined, ["logo", "shot1", "shot2", "shot3", "product"]); slDD.selection = 1; bigBtn(r3, "Build Window From Slot", function () { buildWindowFromSlot(slDD.selection.text); });
-            tab.add("statictext", undefined, "Select an image/screenshot/precomp, or fill a Project Asset slot. No selection = placeholder.");
+            tab.add("statictext", undefined, "── 3D webpage window (glowing, layered depth) ──");
+            var t3 = trow(tab); t3.add("statictext", undefined, "3D movement:"); var wDD3 = t3.add("dropdownlist", undefined, WINDOW3D); wDD3.selection = 0; wDD3.alignment = ["fill", "center"];
+            var t3b = trow(tab); bigBtn(t3b, "Make 3D Window", function () { makeThreeDWindow(wDD3.selection.text); }); bigBtn(t3b, "Random 3D Window", function () { seed(CFG.seed + comboSalt()); var nm = pick(WINDOW3D); for (var i = 0; i < wDD3.items.length; i++) if (wDD3.items[i].text === nm) wDD3.selection = i; makeThreeDWindow(nm); });
+            var r3 = trow(tab); r3.add("statictext", undefined, "From slot:"); var slDD = r3.add("dropdownlist", undefined, ["logo", "shot1", "shot2", "shot3", "product"]); slDD.selection = 1; bigBtn(r3, "Build 2D Window From Slot", function () { buildWindowFromSlot(slDD.selection.text); });
+            tab.add("statictext", undefined, "Select your screenshot layer (or fill Screenshot slot 1), then Make 3D Window. No selection = placeholder.");
         }
         function buildShapeTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;

@@ -40,7 +40,12 @@ Every action runs in one undo group (Ctrl/Cmd+Z reverts it).
    Extra, Video, Character, Outro Logo). *Use Selected* assigns the selected layer; slots are
    used automatically in the promo (Logo → Scene 1 & 7, Screenshot 1 → Scene 3, etc.).
 6. **Motion Presets** — Bounce/Slide/Pop/Fade/Blur/Beat Sync/Combo.
-7. **Text Presets** · 8. **Window Presets** · 9. **Shape Presets** (+ shape packs) ·
+7. **Text Presets** · 8. **Window Presets** — turn a selected screenshot (or Screenshot slot 1)
+   into a flat *or* a glowing **3D webpage window** (layers at real Z depths + glow border +
+   back-glow + shadow). 18 3D movement presets: Hover, Hover Around, Sway L↔R, Turn L→R /
+   R→L, Tilt Reveal, Stand Up, Card Flip In, Turn In, Parallax Push, Pull Back, Orbit,
+   Floating Depth, Left/Right Pass, Glow Pulse Hover, Corner Peek, Depth Zoom (+ Random 3D).
+   · 9. **Shape Presets** (+ shape packs) ·
    10. **Transitions** · 11. **Flash / Impact** · 12. **Camera** — each: category→preset,
    Apply / Random / To Markers.
 13. **Preset Preview** — Create Demo Comp, Preview Selected/Random/Category, Clear Demo.
