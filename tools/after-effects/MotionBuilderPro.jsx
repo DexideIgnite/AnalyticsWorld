@@ -1304,24 +1304,18 @@
         UI.dur = field(advBody, "Duration (s)", "0.6"); UI.delay = field(advBody, "Delay / stagger (s)", "0.08"); UI.dist = field(advBody, "Distance (px)", "300"); UI.bounce = field(advBody, "Bounce amount", "1"); UI.glow = field(advBody, "Glow strength", "1"); UI.blur = field(advBody, "Blur amount", "1"); UI.flash = field(advBody, "Flash strength", "1"); UI.scale = field(advBody, "Scale amount (%)", "100"); UI.rot = field(advBody, "Rotation amount", "15"); UI.off = field(advBody, "Marker offset (s)", "0.0"); UI.rand = field(advBody, "Random variation (%)", "20"); UI.seed = field(advBody, "Random seed", "12345");
         var scopeG = trow(advBody); scopeG.add("statictext", undefined, "Apply to:"); var scopeDD = scopeG.add("dropdownlist", undefined, ["Each selected (stagger)", "All selected as group", "Markers"]); scopeDD.selection = 0; scopeDD.onChange = function () { CFG.applyTo = scopeDD.selection.index === 1 ? "all" : (scopeDD.selection.index === 2 ? "markers" : "each"); };
 
-        /* ---- Preset Library ---- */
-        var ps = win.add("panel", undefined, "Preset Library — all categories (Motion / Text / Window / Shape / Transition / Flash / Camera / Beat Sync / Combo / Scenes)"); ps.orientation = "column"; ps.alignChildren = ["fill", "top"]; ps.margins = 10; ps.spacing = 4;
-        var lr1 = trow(ps); lr1.add("statictext", undefined, "Category:"); var catDD = lr1.add("dropdownlist", undefined, CATEGORY_ORDER); catDD.selection = 0; catDD.preferredSize.width = 150;
-        var lr2 = trow(ps); lr2.add("statictext", undefined, "Preset:"); var presetDD = lr2.add("dropdownlist", undefined, BOUNCE); presetDD.selection = 0; presetDD.alignment = ["fill", "center"];
-        catDD.onChange = function () { var arr = CATEGORIES[catDD.selection.text]; presetDD.removeAll(); for (var i = 0; i < arr.length; i++) presetDD.add("item", arr[i]); presetDD.selection = 0; };
-        var lr3 = trow(ps); bigBtn(lr3, "Apply Preset", function () { applyPreset(catDD.selection.text, presetDD.selection.text, undefined); }); bigBtn(lr3, "Apply Random", function () { var nm = applyRandomPreset(catDD.selection.text); if (nm) for (var i = 0; i < presetDD.items.length; i++) if (presetDD.items[i].text === nm) presetDD.selection = i; }); bigBtn(lr3, "Apply To Markers", function () { applyToMarkers(catDD.selection.text, presetDD.selection.text); });
-
-        /* ---- Tabs ---- */
+        /* ---- Tabs (Presets is the first tab so it's always reachable) ---- */
         // NOTE: kept to 9 short-titled tabs so all tab headers fit (14 overflowed and hid tabs).
         // Every preset category (Motion/Text/Transition/Flash/Camera/etc.) is in the Preset Library panel above.
         var tp = win.add("tabbedpanel"); tp.alignChildren = ["fill", "fill"]; tp.preferredSize.height = 250;
         function safeTab(titleStr, builder) { var t = tp.add("tab", undefined, titleStr); try { builder(t); } catch (e) { try { t.add("statictext", undefined, titleStr + " error: " + e.toString()); } catch (e2) {} } }
-        safeTab("Quick Build", buildQuickTab);
-        safeTab("30s Promo", buildPromoTab);
-        safeTab("Marker Bin", buildMarkerTab);
-        safeTab("Text Queue", buildQueueTab);
+        safeTab("Presets", function (t) { buildPresetsTab(t); });
+        safeTab("Quick", buildQuickTab);
+        safeTab("Promo", buildPromoTab);
+        safeTab("Markers", buildMarkerTab);
+        safeTab("Text", buildQueueTab);
         safeTab("Assets", buildAssetsTab);
-        safeTab("Window / 3D", buildWindowTab);
+        safeTab("Window", buildWindowTab);
         safeTab("Shapes", buildShapeTab);
         safeTab("Preview", buildPreviewTab);
         safeTab("Export", buildExportTab);
@@ -1337,6 +1331,11 @@
             cDD.onChange = function () { var arr = CATEGORIES[cDD.selection.text]; pDD.removeAll(); for (var i = 0; i < arr.length; i++) pDD.add("item", arr[i]); pDD.selection = 0; };
             var r3 = trow(tab); bigBtn(r3, "Apply", function () { applyPreset(cDD.selection.text, pDD.selection.text, undefined); }); bigBtn(r3, "Random", function () { var nm = applyRandomPreset(cDD.selection.text); if (nm) for (var i = 0; i < pDD.items.length; i++) if (pDD.items[i].text === nm) pDD.selection = i; }); bigBtn(r3, "To Markers", function () { applyToMarkers(cDD.selection.text, pDD.selection.text); });
             return { cat: cDD, preset: pDD };
+        }
+        function buildPresetsTab(tab) {
+            tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
+            tab.add("statictext", undefined, "Every preset lives here — pick a Category (Bounce, Slide, Pop, Fade, Blur, Text, Window, Shape, Flash, Transition, Camera, Beat Sync, Combo, Scenes), then a Preset.");
+            makeCatTab(tab, CATEGORY_ORDER);
         }
         function buildQuickTab(tab) {
             tab.orientation = "column"; tab.alignChildren = ["fill", "top"]; tab.margins = 10; tab.spacing = 4;
