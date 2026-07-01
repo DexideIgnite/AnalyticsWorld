@@ -1305,28 +1305,26 @@
         var scopeG = trow(advBody); scopeG.add("statictext", undefined, "Apply to:"); var scopeDD = scopeG.add("dropdownlist", undefined, ["Each selected (stagger)", "All selected as group", "Markers"]); scopeDD.selection = 0; scopeDD.onChange = function () { CFG.applyTo = scopeDD.selection.index === 1 ? "all" : (scopeDD.selection.index === 2 ? "markers" : "each"); };
 
         /* ---- Preset Library ---- */
-        var ps = win.add("panel", undefined, "Preset Library"); ps.orientation = "column"; ps.alignChildren = ["fill", "top"]; ps.margins = 10; ps.spacing = 4;
+        var ps = win.add("panel", undefined, "Preset Library — all categories (Motion / Text / Window / Shape / Transition / Flash / Camera / Beat Sync / Combo / Scenes)"); ps.orientation = "column"; ps.alignChildren = ["fill", "top"]; ps.margins = 10; ps.spacing = 4;
         var lr1 = trow(ps); lr1.add("statictext", undefined, "Category:"); var catDD = lr1.add("dropdownlist", undefined, CATEGORY_ORDER); catDD.selection = 0; catDD.preferredSize.width = 150;
         var lr2 = trow(ps); lr2.add("statictext", undefined, "Preset:"); var presetDD = lr2.add("dropdownlist", undefined, BOUNCE); presetDD.selection = 0; presetDD.alignment = ["fill", "center"];
         catDD.onChange = function () { var arr = CATEGORIES[catDD.selection.text]; presetDD.removeAll(); for (var i = 0; i < arr.length; i++) presetDD.add("item", arr[i]); presetDD.selection = 0; };
         var lr3 = trow(ps); bigBtn(lr3, "Apply Preset", function () { applyPreset(catDD.selection.text, presetDD.selection.text, undefined); }); bigBtn(lr3, "Apply Random", function () { var nm = applyRandomPreset(catDD.selection.text); if (nm) for (var i = 0; i < presetDD.items.length; i++) if (presetDD.items[i].text === nm) presetDD.selection = i; }); bigBtn(lr3, "Apply To Markers", function () { applyToMarkers(catDD.selection.text, presetDD.selection.text); });
 
         /* ---- Tabs ---- */
-        var tp = win.add("tabbedpanel"); tp.alignChildren = ["fill", "fill"]; tp.preferredSize.height = 280;
-        buildQuickTab(tp.add("tab", undefined, "Quick Build"));
-        buildPromoTab(tp.add("tab", undefined, "30s Promo Builder"));
-        buildMarkerTab(tp.add("tab", undefined, "Comp Marker Bin"));
-        buildQueueTab(tp.add("tab", undefined, "Text Queue"));
-        buildAssetsTab(tp.add("tab", undefined, "Project Assets"));
-        makeCatTab(tp.add("tab", undefined, "Motion Presets"), ["Bounce", "Slide", "Pop / Scale", "Fade", "Blur", "Beat Sync", "Combo Presets"]);
-        makeCatTab(tp.add("tab", undefined, "Text Presets"), ["Text"]);
-        buildWindowTab(tp.add("tab", undefined, "Window Presets"));
-        buildShapeTab(tp.add("tab", undefined, "Shape Presets"));
-        makeCatTab(tp.add("tab", undefined, "Transitions"), ["Transition"]);
-        makeCatTab(tp.add("tab", undefined, "Flash / Impact"), ["Flash / Impact"]);
-        makeCatTab(tp.add("tab", undefined, "Camera"), ["Camera"]);
-        buildPreviewTab(tp.add("tab", undefined, "Preset Preview"));
-        buildExportTab(tp.add("tab", undefined, "Export Recipe"));
+        // NOTE: kept to 9 short-titled tabs so all tab headers fit (14 overflowed and hid tabs).
+        // Every preset category (Motion/Text/Transition/Flash/Camera/etc.) is in the Preset Library panel above.
+        var tp = win.add("tabbedpanel"); tp.alignChildren = ["fill", "fill"]; tp.preferredSize.height = 250;
+        function safeTab(titleStr, builder) { var t = tp.add("tab", undefined, titleStr); try { builder(t); } catch (e) { try { t.add("statictext", undefined, titleStr + " error: " + e.toString()); } catch (e2) {} } }
+        safeTab("Quick Build", buildQuickTab);
+        safeTab("30s Promo", buildPromoTab);
+        safeTab("Marker Bin", buildMarkerTab);
+        safeTab("Text Queue", buildQueueTab);
+        safeTab("Assets", buildAssetsTab);
+        safeTab("Window / 3D", buildWindowTab);
+        safeTab("Shapes", buildShapeTab);
+        safeTab("Preview", buildPreviewTab);
+        safeTab("Export", buildExportTab);
 
         var foot = win.add("statictext", undefined, "Pick a Profile, load a Text Pack, place markers, then Build. Every action is one undo step.");
         try { foot.graphics.font = ScriptUI.newFont("dialog", "ITALIC", 10); } catch (e) {}
@@ -1449,6 +1447,7 @@
         undoable("Make Premium Window", function () { var layer = (sel && sel.length) ? sel[0] : null; buildWindow(comp, "App Window", { inT: comp.time, dotsT: comp.time + 0.4, glowT: comp.time + 0.7, zoomT: comp.time + 1.4, shine: true, cursorT: comp.time + 1.8 }, s, layer && layer.source ? layer : (ASSETS.shot1 && ASSETS.shot1.source ? ASSETS.shot1 : null)); });
     }
 
-    buildUI(thisObj);
+    try { buildUI(thisObj); }
+    catch (e) { alert(SCRIPT_NAME + " UI build error:\n" + e.toString() + (e.line ? "\n(line " + e.line + ")" : "") + "\n\nPlease send this message so it can be fixed.", SCRIPT_NAME); }
 
 })(this);
