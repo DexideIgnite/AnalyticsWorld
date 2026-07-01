@@ -1090,6 +1090,47 @@
     function applyRandomPreset(cat) { var arr = CATEGORIES[cat]; if (!arr) return; seed(CFG.seed + comboSalt()); var name = pick(arr); applyPreset(cat, name, undefined); return name; }
     function comboSalt() { var c = activeComp(true); return c ? Math.round(c.numLayers * 7 + c.duration * 13 + c.time * 30) : 3; }
 
+    /* ===================================================================== *
+     *  21b. ALIGN / CENTER TOOLS
+     * ===================================================================== */
+
+    // Center a layer's visual center to the comp center on X and/or Y,
+    // preserving its anchor point (accounts for scale; ignores rotation/parent).
+    function centerOneInComp(layer, comp, doX, doY) {
+        var t = comp.time; var tp = transformProps(layer); var pos = tp.pos;
+        var cur; try { cur = pos.valueAtTime(t, false); } catch (e) { return; }
+        if (cur.length === undefined) return;   // separated dimensions — skip
+        var target = cur.slice(0);
+        var offX = 0, offY = 0;
+        try {
+            var rect = layer.sourceRectAtTime(t, false);
+            var anchor = tp.anchor.valueAtTime(t, false); var scale = tp.scale.valueAtTime(t, false);
+            var rcx = rect.left + rect.width / 2, rcy = rect.top + rect.height / 2;
+            offX = (rcx - anchor[0]) * (scale[0] / 100); offY = (rcy - anchor[1]) * (scale[1] / 100);
+        } catch (e) { offX = 0; offY = 0; }   // cameras/lights: center the position itself
+        if (doX) target[0] = comp.width / 2 - offX;
+        if (doY) target[1] = comp.height / 2 - offY;
+        if (pos.numKeys > 0) pos.setValueAtTime(t, target); else pos.setValue(target);
+    }
+    function centerSelected(doX, doY, label) {
+        var layers = selectedLayers(); if (!layers) return; var comp = layers[0].containingComp;
+        undoable(label, function () { for (var i = 0; i < layers.length; i++) centerOneInComp(layers[i], comp, doX, doY); });
+    }
+    // Move the anchor to the layer's visual center without shifting the layer.
+    function anchorToCenterOne(layer, comp) {
+        var t = comp.time; var tp = transformProps(layer);
+        var rect; try { rect = layer.sourceRectAtTime(t, false); } catch (e) { return; }
+        var oldA = tp.anchor.value; var scale = tp.scale.value;
+        var newA = [rect.left + rect.width / 2, rect.top + rect.height / 2]; if (oldA.length > 2) newA.push(oldA[2]);
+        var dx = (newA[0] - oldA[0]) * (scale[0] / 100), dy = (newA[1] - oldA[1]) * (scale[1] / 100);
+        tp.anchor.setValue(newA);
+        if (tp.pos.numKeys === 0) { var pv = tp.pos.value; var np = pv.slice(0); np[0] += dx; np[1] += dy; tp.pos.setValue(np); }
+    }
+    function anchorToCenterSelected() {
+        var layers = selectedLayers(); if (!layers) return; var comp = layers[0].containingComp;
+        undoable("Anchor To Center", function () { for (var i = 0; i < layers.length; i++) anchorToCenterOne(layers[i], comp); });
+    }
+
     var UI = {};
     var refreshAssetUI = null;   // set by buildUI; called after asset slot changes
     var refreshMarkerBin = null; // set by buildUI
@@ -1134,6 +1175,17 @@
         function syncEnergy() { var so = styleObj(); CFG.glow = so.glow; CFG.blur = so.blur; var em = ENERGY_MUL[CFG.energy] || ENERGY_MUL["Medium"]; CFG.flash = Math.round((so.flash || 1) * em.flash); CFG.bounce = Math.max(1, Math.round(em.bounce * 1.5)); CFG.duration = ENERGY_DUR[CFG.energy] || 0.45; if (UI.dur) { UI.dur.text = CFG.duration.toFixed(2); UI.glow.text = "" + CFG.glow; UI.flash.text = "" + CFG.flash; UI.bounce.text = "" + CFG.bounce; } }
         var eb = trow(easy); bigBtn(eb, "Build Full 30s Promo", buildFullPromo); bigBtn(eb, "Make Premium Window", makeScreenshotWindow);
         var eb2 = trow(easy); bigBtn(eb2, "Check Script Setup", qaCheck); bigBtn(eb2, "Export Motion Recipe", exportRecipe);
+
+        /* ---- Align & Center (always visible) ---- */
+        var ctr = win.add("panel", undefined, "Align & Center"); ctr.orientation = "column"; ctr.alignChildren = ["fill", "top"]; ctr.margins = 10; ctr.spacing = 4;
+        var cr1 = trow(ctr);
+        bigBtn(cr1, "Center", function () { centerSelected(true, true, "Center"); });
+        bigBtn(cr1, "Center H", function () { centerSelected(true, false, "Center Horizontally"); });
+        bigBtn(cr1, "Center V", function () { centerSelected(false, true, "Center Vertically"); });
+        var cr2 = trow(ctr);
+        bigBtn(cr2, "Anchor → Center", anchorToCenterSelected);
+        var ctrHelp = ctr.add("statictext", undefined, "Select layer(s) → Center. Centers to comp middle at the current time.");
+        try { ctrHelp.graphics.font = ScriptUI.newFont("dialog", "ITALIC", 10); } catch (e) {}
 
         /* ---- Advanced (collapsible) ---- */
         var adv = win.add("panel", undefined, "Advanced Controls"); adv.orientation = "column"; adv.alignChildren = ["fill", "top"]; adv.margins = 10; adv.spacing = 2;
